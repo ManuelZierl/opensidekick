@@ -5,6 +5,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.1.8] — 2026-09-18
+
+### Added
+
+- **Venice AI provider preset** (Settings → Providers → Add a provider).
+  Privacy-focused inference with open-weight and frontier models over Venice's
+  OpenAI-compatible API. OpenSidekick turns off Venice's injected default system
+  prompt (`include_venice_system_prompt: false`) so the agent's own instructions
+  aren't diluted, strips `<think>` blocks from reasoning models' replies, and
+  pins the catalog query to text models so Venice's image/TTS/embedding models
+  can never appear in **Fetch models**, even if Venice changes that default.
+  The preset pre-fills `qwen-3-8-27b` — Venice's default vision model, which
+  supports tool calling and vision per Venice's model catalog. Get a key at
+  venice.ai/settings/api.
+
+## [0.1.1 – 0.1.7] — 2026-07-05 to 2026-07-14
+
+_Shipped as a series of Chrome Web Store releases; grouped here._
+
 ### Added
 
 - **Prompt history in the composer.** Press ↑ in the chat box to recall your

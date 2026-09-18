@@ -21,8 +21,9 @@ export const PROMPT_HISTORY_MAX = 50;
 
 // Provider "type" determines which wire protocol we speak.
 //   "openai"    -> POST {baseUrl}/chat/completions   (OpenRouter, OpenAI, Ollama,
-//                  Groq, Together, DeepSeek, LM Studio, Google's OpenAI-compatible
-//                  endpoint, and any other OpenAI-compatible server)
+//                  Groq, Venice AI, Together, DeepSeek, LM Studio, Google's
+//                  OpenAI-compatible endpoint, and any other OpenAI-compatible
+//                  server)
 //   "anthropic" -> POST {baseUrl}/messages           (Anthropic Messages API)
 export const PROVIDER_TYPES = ["openai", "anthropic"];
 
@@ -73,6 +74,15 @@ export const PROVIDER_PRESETS = [
     defaultModel: "llama-3.3-70b-versatile",
     keyUrl: "https://console.groq.com/keys",
     hint: "Very fast open-weight models.",
+  },
+  {
+    id: "venice",
+    name: "Venice AI",
+    type: "openai",
+    baseUrl: "https://api.venice.ai/api/v1",
+    defaultModel: "qwen-3-8-27b",
+    keyUrl: "https://venice.ai/settings/api",
+    hint: "Privacy-focused inference. Open-weight and frontier models with tool calling + vision.",
   },
   {
     id: "ollama",

@@ -357,6 +357,72 @@ async function main() {
       [STORAGE_KEY, config],
     );
 
+    // --- Options page: the Venice AI preset adds a fully configured provider
+    // and removes cleanly. Uses a FRESH page — optPage was opened before the
+    // config was seeded and holds a pre-seed snapshot. This block re-saves the
+    // config from the options page, so it has to stay right after the seeding
+    // step and before anything that mutates state (permissions, workflows). ---
+    const VENICE_BASE = "https://api.venice.ai/api/v1";
+    const vPage = await context.newPage();
+    try {
+      await vPage.goto(`chrome-extension://${extId}/src/options/options.html`, { waitUntil: "load" });
+      // <option>s inside a closed <select> are never "visible" to Playwright — wait
+      // for the element to exist, not to be shown.
+      await vPage.waitForSelector('#preset-select option[value="venice"]', { state: "attached", timeout: 5000 });
+      const vLabel = await vPage.$eval('#preset-select option[value="venice"]', (el) => el.textContent);
+      check(vLabel === "Venice AI", `venice: the preset list offers "Venice AI" (got "${vLabel}")`);
+      await vPage.selectOption("#preset-select", "venice");
+      await vPage.click("#add-provider");
+      // Wait for the second card to render, then assert its fields — so a wrong
+      // value is one FAIL instead of a timeout that aborts the suite.
+      await vPage.waitForFunction(() => document.querySelectorAll(".provider").length === 2, null, { timeout: 5000 });
+      const vCard = await vPage.evaluate(() => {
+        const card = document.querySelectorAll(".provider")[1];
+        return {
+          id: card.dataset.id,
+          baseUrl: card.querySelector(".base-url").value,
+          model: card.querySelector(".model").value,
+          keyHref: card.querySelector(".key-link").getAttribute("href"),
+        };
+      });
+      check(vCard.baseUrl === VENICE_BASE, `venice: the card pre-fills Venice's base URL (got "${vCard.baseUrl}")`);
+      check(vCard.model === "qwen-3-8-27b", `venice: the card pre-fills the default model (got "${vCard.model}")`);
+      check(vCard.keyHref === "https://venice.ai/settings/api", `venice: the card links to Venice's key page (got "${vCard.keyHref}")`);
+      const readProviders = () =>
+        vPage.evaluate(async (key) => {
+          const cfg = (await chrome.storage.local.get(key))[key] || {};
+          return { bases: (cfg.providers || []).map((p) => p.baseUrl), active: cfg.activeProviderId };
+        }, STORAGE_KEY);
+      // Poll storage rather than sleeping — persist() is an async round-trip.
+      await vPage.waitForFunction(
+        ([key, url]) => chrome.storage.local.get(key).then((r) => (r[key]?.providers || []).some((p) => p.baseUrl === url)),
+        [STORAGE_KEY, VENICE_BASE],
+        { timeout: 5000 },
+      );
+      const vAfterAdd = await readProviders();
+      check(
+        vAfterAdd.bases.includes(`${base}/v1`) && vAfterAdd.bases.includes(VENICE_BASE),
+        `venice: storage keeps the mock provider alongside the new one (got ${JSON.stringify(vAfterAdd.bases)})`,
+      );
+      check(vAfterAdd.active === "mock", `venice: adding a provider doesn't steal the active slot (got ${vAfterAdd.active})`);
+      await vPage.click(`.provider[data-id="${vCard.id}"] .delete-provider`);
+      await vPage.waitForFunction(
+        ([key, url]) => chrome.storage.local.get(key).then((r) => !(r[key]?.providers || []).some((p) => p.baseUrl === url)),
+        [STORAGE_KEY, VENICE_BASE],
+        { timeout: 5000 },
+      );
+      const vAfterDel = await readProviders();
+      check(
+        !vAfterDel.bases.includes(VENICE_BASE) && vAfterDel.bases.includes(`${base}/v1`),
+        `venice: Remove drops only the Venice provider (got ${JSON.stringify(vAfterDel.bases)})`,
+      );
+      check(vAfterDel.active === "mock", `venice: the mock provider is still active after the removal (got ${vAfterDel.active})`);
+    } catch (e) {
+      check(false, `venice: options-page flow threw: ${e.message}`);
+    } finally {
+      await vPage.close().catch(() => {});
+    }
+
     // Collect agent events, and auto-respond to permission prompts (recording
     // them), in the options page context.
     await optPage.evaluate(([agentEventType, permReq, permResp]) => {

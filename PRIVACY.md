@@ -18,7 +18,7 @@ backend server operated by the project and collects no analytics or telemetry.
 ## Where data goes
 
 The only network destination is the **provider endpoint you choose** (e.g.
-OpenRouter, OpenAI, Anthropic, Google, Groq, or a local model at
+OpenRouter, OpenAI, Anthropic, Google, Groq, Venice AI, or a local model at
 `localhost`). OpenSidekick sends requests directly from your browser to that
 endpoint. The project's authors never receive your keys, prompts, or page data.
 

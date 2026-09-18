@@ -5,8 +5,8 @@
 **OpenSidekick is an open-source AI agent that lives in Chrome's side panel, reads
 the page you're on, and acts on it — click, type, fill forms, navigate, work
 across tabs — using _any_ model you choose.** OpenRouter, OpenAI, Claude, Gemini,
-Groq, or a fully local model in Ollama / LM Studio. Your keys stay in your
-browser. **MIT licensed. No account, no telemetry, no middleman.**
+Groq, Venice AI, or a fully local model in Ollama / LM Studio. Your keys stay in
+your browser. **MIT licensed. No account, no telemetry, no middleman.**
 
 <p align="center">
   <a href="https://chromewebstore.google.com/detail/idffinkmnnajgpjjonpmmaikjbpjmngk"><img src="https://img.shields.io/chrome-web-store/v/idffinkmnnajgpjjonpmmaikjbpjmngk?label=Chrome%20Web%20Store&color=4f46e5" alt="Chrome Web Store" /></a>
@@ -68,7 +68,8 @@ genuinely agentic, and usable with any LLM — including fully local models.**
 - **Multi-tab** — list, open, and switch tabs to complete a task.
 - **Any provider, any model** via two protocols:
   - OpenAI-compatible (`/chat/completions`): OpenRouter, OpenAI, Google Gemini,
-    Groq, Together, DeepSeek, **Ollama**, **LM Studio**, or any custom endpoint.
+    Groq, Venice AI, Together, DeepSeek, **Ollama**, **LM Studio**, or any
+    custom endpoint.
   - Anthropic Messages API (direct from the browser).
 - **Safety layer** — three autonomy modes: **plan-first** (the agent proposes a
   plan and the sites it will use, and waits for your approval before acting),
@@ -132,6 +133,7 @@ add a provider:
 | Anthropic | `https://api.anthropic.com/v1` | Uses the direct-browser access header. |
 | Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai` | OpenAI-compatible endpoint. |
 | Groq | `https://api.groq.com/openai/v1` | Very fast open-weight models. |
+| Venice AI | `https://api.venice.ai/api/v1` | Privacy-focused; open-weight + frontier models. |
 | **Ollama** (local) | `http://localhost:11434/v1` | No key. See CORS note below. |
 | **LM Studio** (local) | `http://localhost:1234/v1` | No key. |
 | Custom | your URL | Anything speaking `/chat/completions`. |

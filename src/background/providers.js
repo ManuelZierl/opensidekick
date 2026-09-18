@@ -2,8 +2,9 @@
 //
 // Two wire protocols are implemented:
 //   - "openai":    OpenAI Chat Completions (OpenRouter, OpenAI, Ollama, Groq,
-//                  Together, DeepSeek, LM Studio, Google's OpenAI-compatible
-//                  endpoint, and anything else that speaks /chat/completions)
+//                  Venice AI, Together, DeepSeek, LM Studio, Google's
+//                  OpenAI-compatible endpoint, and anything else that speaks
+//                  /chat/completions)
 //   - "anthropic": Anthropic Messages API (with the direct-browser CORS header)
 //
 // The rest of the codebase only ever deals with a NORMALIZED message/tool shape;
@@ -44,7 +45,11 @@ export async function listModels(provider) {
     const data = await res.json();
     return (data.data || []).map((m) => m.id);
   }
-  const res = await fetch(`${base}/models`, {
+  // Venice serves text models by default today, but its catalog also holds
+  // image/TTS/embedding models behind the same endpoint; pin the query to text
+  // so they can never show up in Fetch models if that default ever changes.
+  const url = isVeniceUrl(base) ? `${base}/models?type=text` : `${base}/models`;
+  const res = await fetch(url, {
     headers: openaiHeaders(provider),
   });
   if (!res.ok) throw new Error(`Models request failed: ${res.status}`);
@@ -213,6 +218,12 @@ async function callOpenAI(provider, opts) {
   if (typeof opts.temperature === "number") body.temperature = opts.temperature;
   const tools = toOpenAITools(opts.tools);
   if (tools) body.tools = tools;
+  if (isVeniceUrl(provider.baseUrl)) {
+    // Venice otherwise prepends its own consumer-chat system prompt, which
+    // dilutes the agent's instructions; and reasoning models' <think> blocks
+    // would stream into the chat as visible text.
+    body.venice_parameters = { include_venice_system_prompt: false, strip_thinking_response: true };
+  }
 
   const res = await fetch(`${trimSlash(provider.baseUrl)}/chat/completions`, {
     method: "POST",
@@ -463,4 +474,16 @@ async function httpError(res) {
 
 function trimSlash(url) {
   return (url || "").replace(/\/+$/, "");
+}
+
+// True only for Venice's own API host — used to send Venice-specific request
+// options. Hostname-exact so lookalikes (api.venice.ai.evil.com) don't match;
+// a fully-qualified trailing dot still counts, other schemes don't.
+export function isVeniceUrl(baseUrl) {
+  try {
+    const u = new URL(baseUrl);
+    return /^https?:$/.test(u.protocol) && u.hostname.toLowerCase().replace(/\.$/, "") === "api.venice.ai";
+  } catch {
+    return false;
+  }
 }
