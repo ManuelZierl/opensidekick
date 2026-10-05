@@ -66,6 +66,9 @@ let BASE2 = ""; // second server (different origin), set in main()
 // --- Mock model: scripts multi-step agentic tasks over the tool protocol. ---
 function decide(messages) {
   const firstUser = (messages.find((m) => m.role === "user")?.content || "").toString().toLowerCase();
+  const latestUser = ([...messages].reverse().find((m) => m.role === "user" && typeof m.content === "string")?.content || "")
+    .toString()
+    .toLowerCase();
   const toolMsgs = messages.filter((m) => m.role === "tool");
   const n = toolMsgs.length;
   const parsed = toolMsgs.map((m) => { try { return JSON.parse(m.content); } catch { return {}; } });
@@ -83,7 +86,7 @@ function decide(messages) {
   }
 
   // Vision: take a screenshot, then confirm once the image comes back.
-  if (/screenshot|see the page/.test(firstUser)) {
+  if (/screenshot|see the page/.test(latestUser)) {
     if (n === 0) return { kind: "tool", name: "take_screenshot", args: {} };
     return { kind: "text", text: "I can see the page — it looks correct." };
   }
@@ -118,7 +121,7 @@ function decide(messages) {
 
   // Background workspace: pause deliberately so the test can switch the
   // user's visible tab before the final click.
-  if (/background workspace/.test(firstUser)) {
+  if (/background workspace/.test(latestUser)) {
     const input = elements.find((e) => e.tag === "input");
     const button = elements.find((e) => e.tag === "button" && (e.name || "").toLowerCase().includes("search"));
     if (n === 0) return { kind: "tool", name: "read_page", args: {} };
@@ -164,7 +167,7 @@ function decide(messages) {
 
   // Action: read page, type into the search box, click Search. The search term
   // follows the request (so a replayed "dogs" workflow types "dogs").
-  const term = /\bdogs\b/.test(firstUser) ? "dogs" : "cats";
+  const term = /\bdogs\b/.test(latestUser) ? "dogs" : "cats";
   const input = elements.find((e) => e.tag === "input");
   const button = elements.find((e) => e.tag === "button" && (e.name || "").toLowerCase().includes("search"));
   if (n === 0) return { kind: "tool", name: "read_page", args: {} };
