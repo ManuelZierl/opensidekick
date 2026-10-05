@@ -482,15 +482,26 @@ async function screenshot(ctx) {
   }
 
   try {
-    // captureVisibleTab grabs the active tab of the window as a PNG data URL.
-    const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "png" });
-    const data = dataUrl.split(",")[1];
-    return { ok: true, image: { mediaType: "image/png", data }, note: "Screenshot captured." };
+    let data;
+    if (tab.active) {
+      // Fast path when the agent tab is also the user's visible tab.
+      const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "png" });
+      data = dataUrl.split(",")[1];
+    } else {
+      // captureVisibleTab would capture the unrelated tab the user switched to.
+      // CDP can target the agent's background tab directly without stealing focus.
+      data = await captureTabScreenshot(tabId);
+    }
+    return {
+      ok: true,
+      image: { mediaType: "image/png", data },
+      note: tab.active ? "Screenshot captured." : "Background workspace screenshot captured.",
+    };
   } catch (e) {
     return {
       ok: false,
       error:
-        "Could not capture a screenshot (restricted page, or the tab isn't visible): " +
+        "Could not capture the agent tab without interrupting your browsing: " +
         (e.message || e),
     };
   }
