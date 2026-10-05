@@ -390,19 +390,42 @@ async function navigate(ctx, target) {
 async function openTab(ctx, url) {
   let full = url.trim();
   if (!/^https?:\/\//i.test(full) && !/^[a-z]+:\/\//i.test(full)) full = "https://" + full;
-  const tab = await chrome.tabs.create({ url: full, active: true });
+
+  let current = null;
+  try {
+    current = await chrome.tabs.get(await ctx.getTabId());
+  } catch {
+    /* fall back to Chrome's default window */
+  }
+
+  const createProps = { url: full, active: false };
+  if (current && Number.isInteger(current.windowId)) createProps.windowId = current.windowId;
+  const tab = await chrome.tabs.create(createProps);
+
+  const groupId = typeof ctx.getTabGroupId === "function" ? ctx.getTabGroupId() : null;
+  if (Number.isInteger(groupId) && groupId >= 0) {
+    try {
+      await chrome.tabs.group({ tabIds: [tab.id], groupId });
+    } catch {
+      // If the group vanished mid-run, keep the tab usable rather than failing.
+    }
+  }
+
   ctx.setTabId(tab.id);
   await waitForLoad(tab.id);
   const updated = await chrome.tabs.get(tab.id);
-  return { ok: true, tab_id: tab.id, url: updated.url, title: updated.title };
+  return { ok: true, tab_id: tab.id, url: updated.url, title: updated.title, active: updated.active };
 }
 
 async function switchTab(ctx, tabId) {
   try {
     const tab = await chrome.tabs.get(tabId);
-    await chrome.tabs.update(tabId, { active: true });
+    const groupId = typeof ctx.getTabGroupId === "function" ? ctx.getTabGroupId() : null;
+    if (Number.isInteger(groupId) && groupId >= 0 && tab.groupId !== groupId) {
+      return { ok: false, error: `Tab ${tabId} is outside the current OpenSidekick workspace.` };
+    }
     ctx.setTabId(tabId);
-    return { ok: true, tab_id: tabId, url: tab.url, title: tab.title };
+    return { ok: true, tab_id: tabId, url: tab.url, title: tab.title, active: tab.active };
   } catch {
     return { ok: false, error: `No tab with id ${tabId}.` };
   }
@@ -502,11 +525,25 @@ async function fetchDirectImage(url) {
   }
 }
 
-async function listTabs() {
-  const tabs = await chrome.tabs.query({ currentWindow: true });
+async function listTabs(ctx) {
+  const groupId = typeof ctx.getTabGroupId === "function" ? ctx.getTabGroupId() : null;
+  let tabs;
+  if (Number.isInteger(groupId) && groupId >= 0) {
+    tabs = await chrome.tabs.query({ groupId });
+  } else {
+    const current = await chrome.tabs.get(await ctx.getTabId()).catch(() => null);
+    tabs = await chrome.tabs.query(current ? { windowId: current.windowId } : { currentWindow: true });
+  }
+  const focusedId = await ctx.getTabId();
   return {
     ok: true,
-    tabs: tabs.map((t) => ({ tab_id: t.id, title: t.title, url: t.url, active: t.active })),
+    tabs: tabs.map((t) => ({
+      tab_id: t.id,
+      title: t.title,
+      url: t.url,
+      active: t.active,
+      agent_focused: t.id === focusedId,
+    })),
   };
 }
 
