@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "OpenSidekick — Bring-Your-Own-LLM Browser Agent",
+  "name": "OpenSidekick Browser Parity DEV",
   "short_name": "OpenSidekick",
-  "version": "0.1.8",
+  "version": "0.1.8.2",
   "description": "Open-source AI assistant that reads and acts on web pages using any model you choose. Your keys stay in your browser.",
   "author": "OpenSidekick contributors",
   "homepage_url": "https://opensidekick.app",
