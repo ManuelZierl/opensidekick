@@ -65,7 +65,11 @@ genuinely agentic, and usable with any LLM — including fully local models.**
 - **Optional developer tools** — read the page's console messages and network
   requests to debug ("why is this page erroring?"), and a run-JavaScript escape
   hatch for when the other tools aren't enough. Both opt-in in Settings.
-- **Multi-tab** — list, open, and switch tabs to complete a task.
+- **Persistent tab-group workspace** — the current page becomes an
+  **OpenSidekick** Chrome tab group. The agent can list/open/switch tabs inside
+  that workspace without stealing your foreground tab, and it keeps working
+  there when you browse elsewhere. Drag another tab into the group to add it to
+  the agent's context.
 - **Any provider, any model** via two protocols:
   - OpenAI-compatible (`/chat/completions`): OpenRouter, OpenAI, Google Gemini,
     Groq, Venice AI, Together, DeepSeek, **Ollama**, **LM Studio**, or any
@@ -166,7 +170,9 @@ OLLAMA_ORIGINS='chrome-extension://*' ollama serve
  Service worker ──► Agent loop ──► your LLM provider (streaming)
         │                │  tool calls
         │                ▼
-        │           Tools (navigate, tabs) + Content script (read/act on page)
+        │           Tools + persistent Chrome tab-group workspace
+        │                │
+        │                └── Content script (read/act on workspace tabs)
         ▼
  Permission prompts ◄────┘  (for actions on new / sensitive sites)
 ```
@@ -176,10 +182,15 @@ OLLAMA_ORIGINS='chrome-extension://*' ollama serve
 2. The model calls tools like `read_page` (which returns a compact map of
    interactive elements, each with a numeric ref) and then `click_element`,
    `type_text`, `navigate`, etc.
-3. The content script executes those actions on the page and returns results.
-4. Mutating actions on a new site trigger a permission prompt (unless you're in
+3. The starting tab is kept in a named **OpenSidekick** tab group. Agent-created
+   tabs join that group in the background, and logical tab switching does not
+   change the tab you are currently viewing.
+4. The content script executes actions against the agent's focused workspace tab
+   and returns results. If you switch elsewhere, the workspace stays attached to
+   the conversation for follow-up prompts.
+5. Mutating actions on a new site trigger a permission prompt (unless you're in
    "auto" mode); sensitive sites always ask per action.
-5. The loop continues until the model calls `finish` or has nothing left to do.
+6. The loop continues until the model calls `finish` or has nothing left to do.
 
 ## Safety & privacy
 
@@ -222,6 +233,7 @@ Shipped since the first cut:
 - [x] Scheduled and recurring tasks (with result notifications)
 - [x] Workflow recording & replay
 - [x] Connect to MCP tool servers (extend beyond the browser)
+- [x] Persistent Chrome tab-group workspace with background multi-tab operation
 
 Planned, to reach and exceed feature parity with vendor-locked assistants:
 
