@@ -469,12 +469,27 @@ async function handleRunTask(msg) {
   conversation.push({ role: "user", content: msg.task });
   emit({ kind: "user_echo", text: msg.task });
 
-  const workspace = await ensureTabWorkspace(!!msg.newChat);
+  let workspace;
+  try {
+    workspace = await ensureTabWorkspace(!!msg.newChat);
+  } catch (e) {
+    emit({
+      kind: "error",
+      error: "Could not create the OpenSidekick tab group: " + String(e && e.message ? e.message : e),
+    });
+    emit({ kind: "idle" });
+    return { ok: false, error: "workspace-failed" };
+  }
   if (!workspace) {
     emit({ kind: "error", error: "Could not find a browser tab to create an OpenSidekick workspace." });
     emit({ kind: "idle" });
     return { ok: false, error: "no-tab" };
   }
+  emit({
+    kind: "workspace_ready",
+    groupId: workspace.groupId,
+    tabId: workspace.focusedTabId,
+  });
 
   const controller = new AbortController();
   currentRun = { controller, workspace };
