@@ -606,7 +606,7 @@ async function runScheduledTask(task) {
   let tabId;
   try {
     if (task.url) {
-      const tab = await chrome.tabs.create({ url: normalizeUrl(task.url), active: true });
+      const tab = await chrome.tabs.create({ url: normalizeUrl(task.url), active: false });
       tabId = tab.id;
       await waitTabComplete(tabId);
     } else {
