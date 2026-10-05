@@ -62,9 +62,10 @@ genuinely agentic, and usable with any LLM — including fully local models.**
 - **Vision (on by default)** — the agent can capture a screenshot so a
   multimodal model can *see* the page (images, canvas apps, visual layout). Turn
   it off in Settings if you use a text-only model.
-- **Optional developer tools** — read the page's console messages and network
-  requests to debug ("why is this page erroring?"), and a run-JavaScript escape
-  hatch for when the other tools aren't enough. Both opt-in in Settings.
+- **Optional advanced browser automation** — use Chrome's debugger for trusted,
+  browser-level mouse input on sites that ignore synthesized DOM events, plus
+  console/network inspection. A run-JavaScript escape hatch is also available
+  for cases where the normal tools aren't enough. These are opt-in in Settings.
 - **Persistent tab-group workspace** — the current page becomes an
   **OpenSidekick** Chrome tab group. The agent can list/open/switch tabs inside
   that workspace without stealing your foreground tab, and it keeps working
@@ -210,9 +211,10 @@ See [PRIVACY.md](PRIVACY.md) for the full data-handling statement.
 
 ## Limitations (v0.1)
 
-- Actions are DOM-based (synthesized events), which works on most sites but can
-  miss elements inside closed shadow DOM, cross-origin iframes, or `<canvas>`
-  apps.
+- Mouse actions use synthesized DOM events by default. Enable **advanced browser
+  automation** in Settings to use trusted Chrome DevTools Protocol mouse input
+  for clicks, hover, double/right-click, and drag. Closed shadow DOM,
+  cross-origin iframes, and `<canvas>` apps can still require additional handling.
 - Restricted pages (`chrome://`, the Chrome Web Store, PDFs) can't be read or
   acted on.
 - Scheduled/long tasks depend on the service worker staying alive; very long
@@ -226,6 +228,7 @@ Shipped since the first cut:
 - [x] Fuller action set — hover, double-click, right-click, drag, keyboard shortcuts
 - [x] Run-JavaScript escape hatch (opt-in)
 - [x] Read console errors + network requests via Chrome's debugger (opt-in)
+- [x] CDP-based trusted mouse input for sites that reject synthetic events (opt-in)
 - [x] On-page activity indicator with a Stop button
 - [x] Prompt-injection flagging + pre-action domain re-check + sensitive-action confirmation
 - [x] Plan-approval mode (agent proposes steps + sites, you approve before it acts)
@@ -238,7 +241,6 @@ Shipped since the first cut:
 Planned, to reach and exceed feature parity with vendor-locked assistants:
 
 - [ ] Upload files into file inputs (via the debugger)
-- [ ] CDP-based trusted input for tougher sites
 - [ ] Prompt-injection classifier on untrusted content
 - [ ] Firefox (WebExtensions) build
 
