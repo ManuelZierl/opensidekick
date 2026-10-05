@@ -87,7 +87,7 @@ export async function runAgent(deps) {
   const ctx = {
     getTabId: async () => focusedTabId,
     getTabGroupId: () => tabGroupId,
-    enableCdpInput: !!s.enableCdp,
+    enableCdpInput: s.enableNativeInput !== false,
     setTabId: (id) => {
       focusedTabId = id;
       if (onFocusedTabChanged) {
