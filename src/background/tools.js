@@ -3,7 +3,7 @@
 // provider layer converts them to the right wire format.
 
 import { MSG } from "../common/constants.js";
-import { readConsole, readNetwork } from "./cdp.js";
+import { captureTabScreenshot, readConsole, readNetwork } from "./cdp.js";
 
 export const TOOL_DEFS = [
   {
@@ -219,12 +219,12 @@ export const TOOL_DEFS = [
   },
   {
     name: "list_tabs",
-    description: "List the open tabs in the current window (id, title, url, active).",
+    description: "List tabs in the current OpenSidekick workspace (id, title, url, active).",
     parameters: { type: "object", properties: {}, additionalProperties: false },
   },
   {
     name: "open_tab",
-    description: "Open a new tab with the given URL and switch the agent's focus to it.",
+    description: "Open a new background tab in the OpenSidekick workspace and switch the agent's logical focus to it.",
     parameters: {
       type: "object",
       properties: { url: { type: "string", description: "URL to open." } },
@@ -234,7 +234,7 @@ export const TOOL_DEFS = [
   },
   {
     name: "switch_tab",
-    description: "Switch the agent's focus to an existing tab by its id (from list_tabs).",
+    description: "Switch the agent's logical focus to an existing workspace tab by id without changing the user's visible tab.",
     parameters: {
       type: "object",
       properties: { tab_id: { type: "integer", description: "The tab id." } },
@@ -315,7 +315,7 @@ export async function executeTool(name, args, ctx) {
     case "wait":
       return await waitSeconds(args.seconds);
     case "list_tabs":
-      return await listTabs();
+      return await listTabs(ctx);
     case "open_tab":
       return await openTab(ctx, args.url);
     case "switch_tab":
