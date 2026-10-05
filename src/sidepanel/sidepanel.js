@@ -360,6 +360,9 @@ function handleEvent(ev) {
     case "mcp_connected":
       addNote(`🔌 Connected to MCP server “${ev.server}” (${ev.count} tool${ev.count === 1 ? "" : "s"})`);
       break;
+    case "workspace_ready":
+      addNote(`Browser Parity DEV: OpenSidekick tab group ready (group ${ev.groupId}, tab ${ev.tabId}).`);
+      break;
     case "warning":
       addWarning(ev.text);
       break;
