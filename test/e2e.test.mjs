@@ -116,6 +116,18 @@ function decide(messages) {
     return { kind: "text", text: `console_boom=${consoleHit} network_ping=${netHit}` };
   }
 
+  // Background workspace: pause deliberately so the test can switch the
+  // user's visible tab before the final click.
+  if (/background workspace/.test(firstUser)) {
+    const input = elements.find((e) => e.tag === "input");
+    const button = elements.find((e) => e.tag === "button" && (e.name || "").toLowerCase().includes("search"));
+    if (n === 0) return { kind: "tool", name: "read_page", args: {} };
+    if (n === 1) return { kind: "tool", name: "type_text", args: { ref: input?.ref, text: "cats" } };
+    if (n === 2) return { kind: "tool", name: "wait", args: { seconds: 1 } };
+    if (n === 3) return { kind: "tool", name: "click_element", args: { ref: button?.ref } };
+    return { kind: "tool", name: "finish", args: { summary: "Background workspace completed." } };
+  }
+
   // Sensitive action (D): click "Buy now" — should force a confirmation.
   if (/\bbuy\b|purchase/.test(firstUser)) {
     const buyBtn = elements.find((e) => (e.name || "").toLowerCase().includes("buy"));
@@ -506,6 +518,106 @@ async function main() {
     const answerOf = (events) => [...events].reverse().find((e) => (e.kind === "assistant_end" && e.content) || (e.kind === "finish" && e.summary))?.content ??
       [...events].reverse().find((e) => e.kind === "finish" && e.summary)?.summary ?? "";
     const toolsOf = (events) => events.filter((e) => e.kind === "tool_start").map((e) => e.name);
+
+    // --- Persistent tab-group workspace: the user can switch away while the
+    // agent keeps working, and the next prompt still targets the workspace. ---
+    await testPage.goto(`${base}/page`, { waitUntil: "load" });
+    await testPage.evaluate(() => {
+      document.querySelector("#out").textContent = "";
+      document.querySelector("#q").value = "";
+    });
+    await testPage.bringToFront();
+    await optPage.evaluate(() => { window.__events = []; window.__perm = []; });
+    await optPage.evaluate(
+      ([rt, t]) => chrome.runtime.sendMessage({ type: rt, task: t, newChat: true }),
+      [MSG.RUN_TASK, "Run the background workspace test."],
+    );
+
+    // Wait until the scripted task has reached its deliberate pause.
+    for (let i = 0; i < 50; i++) {
+      const evs = await optPage.evaluate(() => window.__events || []);
+      if (evs.some((e) => e.kind === "tool_start" && e.name === "wait")) break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+
+    const userPage = await context.newPage();
+    await userPage.goto(`${BASE2}/`, { waitUntil: "load" });
+    await userPage.bringToFront();
+
+    let bgOut = "";
+    for (let i = 0; i < 80; i++) {
+      bgOut = await testPage.$eval("#out", (el) => el.textContent).catch(() => "");
+      const evs = await optPage.evaluate(() => window.__events || []);
+      if (bgOut === "Results for: cats" && evs.some((e) => e.kind === "idle")) break;
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    check(bgOut === "Results for: cats", `workspace: agent continued after user switched tabs (got "${bgOut}")`);
+
+    const wsState = await optPage.evaluate(async (key) => {
+      const stored = (await chrome.storage.session.get(key))[key] || null;
+      const tabs = stored ? await chrome.tabs.query({ groupId: stored.groupId }) : [];
+      let group = null;
+      if (stored) {
+        try { group = await chrome.tabGroups.get(stored.groupId); } catch {}
+      }
+      const [active] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      return {
+        stored,
+        groupTitle: group && group.title,
+        groupColor: group && group.color,
+        tabCount: tabs.length,
+        activeUrl: active && active.url,
+      };
+    }, "opensidekick.tabWorkspace.v1");
+    check(!!wsState.stored, "workspace: session stores the agent tab group");
+    check(/^OpenSidekick/.test(wsState.groupTitle || ""), `workspace: Chrome group is visibly named OpenSidekick (got "${wsState.groupTitle}")`);
+    check(wsState.groupColor === "purple", `workspace: group uses the OpenSidekick purple marker (got "${wsState.groupColor}")`);
+    check(wsState.tabCount >= 1, `workspace: group contains the working tab (${wsState.tabCount} tabs)`);
+    check((wsState.activeUrl || "").startsWith(BASE2), `workspace: user stayed on the unrelated tab (active "${wsState.activeUrl}")`);
+
+    // A follow-up while the unrelated tab remains visible must continue on the
+    // stored workspace rather than silently switching context to the user's tab.
+    await testPage.evaluate(() => {
+      document.querySelector("#out").textContent = "";
+      document.querySelector("#q").value = "";
+    });
+    await optPage.evaluate(() => { window.__events = []; window.__perm = []; });
+    await optPage.evaluate(
+      ([rt, t]) => chrome.runtime.sendMessage({ type: rt, task: t, newChat: false }),
+      [MSG.RUN_TASK, "Search for dogs on this page."],
+    );
+    let dogOut = "";
+    for (let i = 0; i < 80; i++) {
+      dogOut = await testPage.$eval("#out", (el) => el.textContent).catch(() => "");
+      const evs = await optPage.evaluate(() => window.__events || []);
+      if (dogOut === "Results for: dogs" && evs.some((e) => e.kind === "idle")) break;
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    check(dogOut === "Results for: dogs", `workspace: follow-up stayed attached to the group (got "${dogOut}")`);
+    const activeAfterFollow = await optPage.evaluate(() =>
+      chrome.tabs.query({ active: true, lastFocusedWindow: true }).then(([t]) => t && t.url),
+    );
+    check((activeAfterFollow || "").startsWith(BASE2), `workspace: follow-up did not steal foreground focus (active "${activeAfterFollow}")`);
+
+    // Vision must target the background workspace tab, not the unrelated tab.
+    sawImage = false;
+    await optPage.evaluate(() => (window.__events = []));
+    await optPage.evaluate(
+      ([rt, t]) => chrome.runtime.sendMessage({ type: rt, task: t, newChat: false }),
+      [MSG.RUN_TASK, "Take a screenshot so you can see the page, then tell me it looks right."],
+    );
+    for (let i = 0; i < 100; i++) {
+      const evs = await optPage.evaluate(() => window.__events || []);
+      if (evs.some((e) => e.kind === "idle")) break;
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    check(sawImage, "workspace: screenshot of a background agent tab reached the model");
+    const activeAfterShot = await optPage.evaluate(() =>
+      chrome.tabs.query({ active: true, lastFocusedWindow: true }).then(([t]) => t && t.url),
+    );
+    check((activeAfterShot || "").startsWith(BASE2), "workspace: background screenshot did not activate the agent tab");
+    await userPage.close();
+    await testPage.bringToFront();
 
     // --- run_javascript: injected code mutates the DOM and returns a value ---
     // (Also verifies (C) the on-page activity overlay appears and clears.)
