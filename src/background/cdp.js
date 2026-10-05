@@ -60,6 +60,21 @@ export async function readNetwork(tabId, opts = {}) {
   };
 }
 
+// Capture a specific tab without making it the browser's active tab. This is
+// used by the agent workspace when the user has switched elsewhere; the normal
+// tabs.captureVisibleTab API can only capture whatever the user is looking at.
+export async function captureTabScreenshot(tabId) {
+  await ensureAttached(tabId);
+  await sendCommand(tabId, "Page.enable").catch(() => {});
+  const result = await sendCommand(tabId, "Page.captureScreenshot", {
+    format: "png",
+    fromSurface: true,
+    captureBeyondViewport: false,
+  });
+  if (!result || !result.data) throw new Error("CDP returned no screenshot data.");
+  return result.data;
+}
+
 // Called at the end of every task so the debugger banner goes away.
 export async function detachAll() {
   for (const tabId of [...attached.keys()]) {
