@@ -134,7 +134,8 @@ export const DEFAULT_SETTINGS = {
   enableVision: true,
   // Expose a run_javascript escape-hatch tool (runs code in the page).
   enableJsTool: false,
-  // Expose console/network reading via Chrome's debugger (shows a banner).
+  // Enable Chrome debugger-backed trusted mouse input plus console/network
+  // reading. Shows Chrome's debugger banner while a task is active.
   enableCdp: false,
   // Max output tokens per model call.
   maxTokens: 4096,
