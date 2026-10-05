@@ -3,7 +3,7 @@
 // provider layer converts them to the right wire format.
 
 import { MSG } from "../common/constants.js";
-import { readConsole, readNetwork } from "./cdp.js";
+import { captureTabScreenshot, readConsole, readNetwork } from "./cdp.js";
 
 export const TOOL_DEFS = [
   {
@@ -219,12 +219,12 @@ export const TOOL_DEFS = [
   },
   {
     name: "list_tabs",
-    description: "List the open tabs in the current window (id, title, url, active).",
+    description: "List tabs in the current OpenSidekick workspace (id, title, url, active).",
     parameters: { type: "object", properties: {}, additionalProperties: false },
   },
   {
     name: "open_tab",
-    description: "Open a new tab with the given URL and switch the agent's focus to it.",
+    description: "Open a new background tab in the OpenSidekick workspace and switch the agent's logical focus to it.",
     parameters: {
       type: "object",
       properties: { url: { type: "string", description: "URL to open." } },
@@ -234,7 +234,7 @@ export const TOOL_DEFS = [
   },
   {
     name: "switch_tab",
-    description: "Switch the agent's focus to an existing tab by its id (from list_tabs).",
+    description: "Switch the agent's logical focus to an existing workspace tab by id without changing the user's visible tab.",
     parameters: {
       type: "object",
       properties: { tab_id: { type: "integer", description: "The tab id." } },
@@ -315,7 +315,7 @@ export async function executeTool(name, args, ctx) {
     case "wait":
       return await waitSeconds(args.seconds);
     case "list_tabs":
-      return await listTabs();
+      return await listTabs(ctx);
     case "open_tab":
       return await openTab(ctx, args.url);
     case "switch_tab":
@@ -390,19 +390,42 @@ async function navigate(ctx, target) {
 async function openTab(ctx, url) {
   let full = url.trim();
   if (!/^https?:\/\//i.test(full) && !/^[a-z]+:\/\//i.test(full)) full = "https://" + full;
-  const tab = await chrome.tabs.create({ url: full, active: true });
+
+  let current = null;
+  try {
+    current = await chrome.tabs.get(await ctx.getTabId());
+  } catch {
+    /* fall back to Chrome's default window */
+  }
+
+  const createProps = { url: full, active: false };
+  if (current && Number.isInteger(current.windowId)) createProps.windowId = current.windowId;
+  const tab = await chrome.tabs.create(createProps);
+
+  const groupId = typeof ctx.getTabGroupId === "function" ? ctx.getTabGroupId() : null;
+  if (Number.isInteger(groupId) && groupId >= 0) {
+    try {
+      await chrome.tabs.group({ tabIds: [tab.id], groupId });
+    } catch {
+      // If the group vanished mid-run, keep the tab usable rather than failing.
+    }
+  }
+
   ctx.setTabId(tab.id);
   await waitForLoad(tab.id);
   const updated = await chrome.tabs.get(tab.id);
-  return { ok: true, tab_id: tab.id, url: updated.url, title: updated.title };
+  return { ok: true, tab_id: tab.id, url: updated.url, title: updated.title, active: updated.active };
 }
 
 async function switchTab(ctx, tabId) {
   try {
     const tab = await chrome.tabs.get(tabId);
-    await chrome.tabs.update(tabId, { active: true });
+    const groupId = typeof ctx.getTabGroupId === "function" ? ctx.getTabGroupId() : null;
+    if (Number.isInteger(groupId) && groupId >= 0 && tab.groupId !== groupId) {
+      return { ok: false, error: `Tab ${tabId} is outside the current OpenSidekick workspace.` };
+    }
     ctx.setTabId(tabId);
-    return { ok: true, tab_id: tabId, url: tab.url, title: tab.title };
+    return { ok: true, tab_id: tabId, url: tab.url, title: tab.title, active: tab.active };
   } catch {
     return { ok: false, error: `No tab with id ${tabId}.` };
   }
@@ -459,15 +482,26 @@ async function screenshot(ctx) {
   }
 
   try {
-    // captureVisibleTab grabs the active tab of the window as a PNG data URL.
-    const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "png" });
-    const data = dataUrl.split(",")[1];
-    return { ok: true, image: { mediaType: "image/png", data }, note: "Screenshot captured." };
+    let data;
+    if (tab.active) {
+      // Fast path when the agent tab is also the user's visible tab.
+      const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "png" });
+      data = dataUrl.split(",")[1];
+    } else {
+      // captureVisibleTab would capture the unrelated tab the user switched to.
+      // CDP can target the agent's background tab directly without stealing focus.
+      data = await captureTabScreenshot(tabId);
+    }
+    return {
+      ok: true,
+      image: { mediaType: "image/png", data },
+      note: tab.active ? "Screenshot captured." : "Background workspace screenshot captured.",
+    };
   } catch (e) {
     return {
       ok: false,
       error:
-        "Could not capture a screenshot (restricted page, or the tab isn't visible): " +
+        "Could not capture the agent tab without interrupting your browsing: " +
         (e.message || e),
     };
   }
@@ -502,11 +536,25 @@ async function fetchDirectImage(url) {
   }
 }
 
-async function listTabs() {
-  const tabs = await chrome.tabs.query({ currentWindow: true });
+async function listTabs(ctx) {
+  const groupId = typeof ctx.getTabGroupId === "function" ? ctx.getTabGroupId() : null;
+  let tabs;
+  if (Number.isInteger(groupId) && groupId >= 0) {
+    tabs = await chrome.tabs.query({ groupId });
+  } else {
+    const current = await chrome.tabs.get(await ctx.getTabId()).catch(() => null);
+    tabs = await chrome.tabs.query(current ? { windowId: current.windowId } : { currentWindow: true });
+  }
+  const focusedId = await ctx.getTabId();
   return {
     ok: true,
-    tabs: tabs.map((t) => ({ tab_id: t.id, title: t.title, url: t.url, active: t.active })),
+    tabs: tabs.map((t) => ({
+      tab_id: t.id,
+      title: t.title,
+      url: t.url,
+      active: t.active,
+      agent_focused: t.id === focusedId,
+    })),
   };
 }
 

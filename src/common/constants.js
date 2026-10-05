@@ -10,6 +10,11 @@ export const STORAGE_KEY = "opensidekick.config.v1";
 // worker pick the chat back up (and it clears automatically when Chrome closes).
 export const SESSION_CONVO_KEY = "opensidekick.conversation.v1";
 
+// The browser workspace attached to the current conversation. Tab-group IDs are
+// only meaningful for the lifetime of a Chrome session, so session storage is
+// the correct lifetime as well.
+export const SESSION_TAB_WORKSPACE_KEY = "opensidekick.tabWorkspace.v1";
+
 // chrome.storage.session key for a finished recording that hasn't been saved or
 // discarded yet — so closing the side panel doesn't silently lose the steps.
 export const SESSION_PENDING_WF_KEY = "opensidekick.pendingWorkflow.v1";

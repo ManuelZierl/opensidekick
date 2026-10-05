@@ -1,8 +1,8 @@
 // Chrome DevTools Protocol integration via chrome.debugger.
 //
-// Powers the debugging tools (read_console / read_network). Attaching shows
-// Chrome's "started debugging this browser" banner, so this is only used when
-// the user turns on Advanced automation, and we detach at the end of each task.
+// Powers the debugging tools (read_console / read_network) and background-tab
+// screenshots. Attaching shows Chrome's debugger banner; we detach at the end
+// of each task.
 //
 // Buffers capture activity that happens AFTER attach — to see load-time errors,
 // the agent can read once (attaching), reload, then read again.
@@ -58,6 +58,21 @@ export async function readNetwork(tabId, opts = {}) {
     requests: items.slice(-limit),
     note: items.length ? undefined : "No network requests captured yet — reload the page and read again.",
   };
+}
+
+// Capture a specific tab without making it the browser's active tab. This is
+// used by the agent workspace when the user has switched elsewhere; the normal
+// tabs.captureVisibleTab API can only capture whatever the user is looking at.
+export async function captureTabScreenshot(tabId) {
+  await ensureAttached(tabId);
+  await sendCommand(tabId, "Page.enable").catch(() => {});
+  const result = await sendCommand(tabId, "Page.captureScreenshot", {
+    format: "png",
+    fromSurface: true,
+    captureBeyondViewport: false,
+  });
+  if (!result || !result.data) throw new Error("CDP returned no screenshot data.");
+  return result.data;
 }
 
 // Called at the end of every task so the debugger banner goes away.
