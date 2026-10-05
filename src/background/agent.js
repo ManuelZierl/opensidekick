@@ -28,7 +28,19 @@ Safety:
 If the user only asks a question that doesn't need the page, just answer directly without tools.`;
 
 export async function runAgent(deps) {
-  const { conversation, config, provider, initialTabId, signal, emit, requestPermission, requestPlanApproval, saveSitePermission } = deps;
+  const {
+    conversation,
+    config,
+    provider,
+    initialTabId,
+    tabGroupId = null,
+    signal,
+    emit,
+    requestPermission,
+    requestPlanApproval,
+    saveSitePermission,
+    onFocusedTabChanged,
+  } = deps;
 
   const maxSteps = Math.max(1, config.settings.maxSteps || 25);
   // Offer optional tools only when the user has enabled them: vision (needs a
@@ -74,8 +86,12 @@ export async function runAgent(deps) {
   let focusedTabId = initialTabId;
   const ctx = {
     getTabId: async () => focusedTabId,
+    getTabGroupId: () => tabGroupId,
     setTabId: (id) => {
       focusedTabId = id;
+      if (onFocusedTabChanged) {
+        Promise.resolve(onFocusedTabChanged(id)).catch(() => {});
+      }
     },
   };
 
