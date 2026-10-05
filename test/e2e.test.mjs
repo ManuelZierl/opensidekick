@@ -66,10 +66,15 @@ let BASE2 = ""; // second server (different origin), set in main()
 // --- Mock model: scripts multi-step agentic tasks over the tool protocol. ---
 function decide(messages) {
   const firstUser = (messages.find((m) => m.role === "user")?.content || "").toString().toLowerCase();
-  const latestUser = ([...messages].reverse().find((m) => m.role === "user" && typeof m.content === "string")?.content || "")
-    .toString()
-    .toLowerCase();
-  const toolMsgs = messages.filter((m) => m.role === "tool");
+  let latestUserIndex = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === "user" && typeof messages[i].content === "string") {
+      latestUserIndex = i;
+      break;
+    }
+  }
+  const latestUser = (latestUserIndex >= 0 ? messages[latestUserIndex].content : "").toString().toLowerCase();
+  const toolMsgs = messages.slice(latestUserIndex + 1).filter((m) => m.role === "tool");
   const n = toolMsgs.length;
   const parsed = toolMsgs.map((m) => { try { return JSON.parse(m.content); } catch { return {}; } });
   let elements = [];
@@ -117,6 +122,14 @@ function decide(messages) {
     const consoleHit = parsed.some((p) => Array.isArray(p.messages) && p.messages.some((mm) => (mm.text || "").includes("cdp-boom")));
     const netHit = parsed.some((p) => Array.isArray(p.requests) && p.requests.some((rr) => (rr.url || "").includes("/ping")));
     return { kind: "text", text: `console_boom=${consoleHit} network_ping=${netHit}` };
+  }
+
+  // Multi-tab workspace: create a secondary tab without taking foreground
+  // focus, then inspect the group-scoped tab list.
+  if (/open another tab in the workspace/.test(latestUser)) {
+    if (n === 0) return { kind: "tool", name: "open_tab", args: { url: `${BASE1}/injected` } };
+    if (n === 1) return { kind: "tool", name: "list_tabs", args: {} };
+    return { kind: "text", text: "workspace_tab_opened" };
   }
 
   // Background workspace: pause deliberately so the test can switch the
@@ -619,6 +632,32 @@ async function main() {
       chrome.tabs.query({ active: true, lastFocusedWindow: true }).then(([t]) => t && t.url),
     );
     check((activeAfterShot || "").startsWith(BASE2), "workspace: background screenshot did not activate the agent tab");
+
+    // Agent-created tabs join the same workspace and stay in the background.
+    await optPage.evaluate(() => (window.__events = []));
+    await optPage.evaluate(
+      ([rt, t]) => chrome.runtime.sendMessage({ type: rt, task: t, newChat: false }),
+      [MSG.RUN_TASK, "Open another tab in the workspace."],
+    );
+    for (let i = 0; i < 100; i++) {
+      const evs = await optPage.evaluate(() => window.__events || []);
+      if (evs.some((e) => e.kind === "idle")) break;
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    const multiState = await optPage.evaluate(async (key) => {
+      const stored = (await chrome.storage.session.get(key))[key] || null;
+      const tabs = stored ? await chrome.tabs.query({ groupId: stored.groupId }) : [];
+      const focused = stored ? tabs.find((t) => t.id === stored.focusedTabId) : null;
+      const [active] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      return {
+        urls: tabs.map((t) => t.url),
+        focusedUrl: focused && focused.url,
+        activeUrl: active && active.url,
+      };
+    }, "opensidekick.tabWorkspace.v1");
+    check(multiState.urls.some((u) => (u || "").includes("/injected")), "workspace: open_tab added the new tab to the same group");
+    check((multiState.focusedUrl || "").includes("/injected"), "workspace: agent logical focus moved to the new group tab");
+    check((multiState.activeUrl || "").startsWith(BASE2), "workspace: open_tab did not steal the user's foreground tab");
     await userPage.close();
     await testPage.bringToFront();
 
