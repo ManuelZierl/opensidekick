@@ -28,3 +28,6 @@ Thumbs.db
 
 # Feature-video recording intermediates — only assets/feature-tour.mp4 is tracked
 assets/video-raw/
+
+# Maintainer decision log — local only, the public repo stays end-user-facing
+.decisions/
