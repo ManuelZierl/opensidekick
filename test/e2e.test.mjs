@@ -798,6 +798,25 @@ async function main() {
         `suggest: "This week's picks" links to the models page in a new tab (got ${row.href}, "${row.linkText}", ${row.target})`,
       );
 
+      // The active provider is marked by an "Active" tag, not a tinted card.
+      const cards = await sPage.evaluate(() =>
+        [...document.querySelectorAll(".provider")].map((c) => ({
+          active: c.classList.contains("active"),
+          tag: getComputedStyle(c.querySelector(".active-tag")).display !== "none",
+          bg: getComputedStyle(c).backgroundColor,
+        })),
+      );
+      const activeCard = cards.find((c) => c.active);
+      const idleCard = cards.find((c) => !c.active);
+      check(
+        !!activeCard && !!idleCard && activeCard.tag && !idleCard.tag && activeCard.bg === idleCard.bg,
+        `providers: only the active card shows the Active tag, and both cards share one background (got ${JSON.stringify(cards)})`,
+      );
+      const learnMore = await sPage.evaluate(() =>
+        ["#enable-vision", "#enable-js", "#enable-cdp"].map((id) => !!document.querySelector(id)?.closest(".field")?.querySelector("details.more")),
+      );
+      check(learnMore.every(Boolean), `options: vision, JavaScript and console/network each fold their long hint under Learn more (got ${JSON.stringify(learnMore)})`);
+
       // (b) A chip is a datalist pick: fills the field, persists, ONE auto-test.
       // Pointed at the loopback mock so the probes run without a key; the
       // preset's default model is probed by that, so wait it out first.
@@ -1050,6 +1069,39 @@ async function main() {
     await panel.click("#slash-menu .slash-item");
     const slashInputVal = await panel.$eval("#input", (el) => el.value);
     check(slashInputVal === "Summarize this page in 3 bullets.", `slash: selecting inserts the prompt text (got "${slashInputVal}")`);
+
+    // Empty state + composer layout: one question line (no hero eyebrow), the
+    // suggestions still fill the box, Send sits inside the field, the approval
+    // control sits under it, and the panel's controls are 32px+ targets.
+    await panel.fill("#input", "");
+    const ui = await panel.evaluate(() => {
+      const box = (sel) => document.querySelector(sel)?.getBoundingClientRect() || { top: 0, bottom: 0, height: 0 };
+      const send = document.getElementById("send-btn");
+      const first = document.querySelector(".examples li");
+      first?.querySelector("button")?.click(); // the li's listener fires via bubbling
+      return {
+        title: (document.querySelector(".empty-title")?.textContent || "").trim(),
+        eyebrow: !!document.querySelector("#empty-state .eyebrow"),
+        buttons: document.querySelectorAll(".examples li button").length,
+        filled: document.getElementById("input").value,
+        example: first?.dataset.example || "",
+        sendInField: !!send?.closest(".composer-field"),
+        sendLabel: send?.getAttribute("aria-label") || "",
+        segUnder: box("#autonomy").top >= box(".composer-field").bottom,
+        heights: {
+          send: box("#send-btn").height,
+          seg: Math.min(...[...document.querySelectorAll(".seg")].map((el) => el.getBoundingClientRect().height)),
+          newChat: box("#new-chat").height,
+          contextHint: box("#context-hint").height,
+        },
+      };
+    });
+    check(ui.title === "What should I do on this page?", `empty: the empty state asks one question (got "${ui.title}")`);
+    check(!ui.eyebrow, "empty: no hero eyebrow in the empty state");
+    check(ui.buttons === 3 && ui.example && ui.filled === ui.example, `empty: three suggestion buttons, and the first fills the box with its prompt (got ${ui.buttons}, "${ui.filled}")`);
+    check(ui.sendInField && ui.sendLabel === "Send", `composer: Send is an icon button inside the field labelled "Send" (in field ${ui.sendInField}, label "${ui.sendLabel}")`);
+    check(ui.segUnder, "composer: the approval control sits under the field");
+    check(Object.values(ui.heights).every((h) => h >= 32), `composer: Send, segments, New chat and the site chip are 32px+ targets (got ${JSON.stringify(ui.heights)})`);
     await panel.close();
 
     // --- Scheduled task: "Run now" opens the URL and runs the task headlessly ---
@@ -1622,6 +1674,15 @@ async function main() {
     const chipHidden = await gatePanel.$eval("#model-line", (el) => el.hidden).catch(() => false);
     check(chipHidden, "gate: the model chip is hidden while no model is configured");
     check(/settings/i.test(placeholder), `gate: composer prompts to add a model (placeholder "${placeholder}")`);
+    // The unconfigured run above left a chat in the worker, which the panel
+    // restores over the empty state; start a fresh one to see the gate itself.
+    await gatePanel.click("#new-chat");
+    const gateEmpty = await gatePanel.evaluate(() => ({
+      examplesHidden: document.querySelector(".examples").hidden,
+      titleVisible: !!document.querySelector(".empty-title")?.checkVisibility(),
+      noticeVisible: !!document.getElementById("not-configured")?.checkVisibility(),
+    }));
+    check(gateEmpty.examplesHidden && gateEmpty.titleVisible && gateEmpty.noticeVisible, `gate: the suggestions hide, the question line and the notice show (got ${JSON.stringify(gateEmpty)})`);
 
     // (3) The composer's approval selector sets autonomy without opening Settings.
     const initialMode = await gatePanel.$eval("#autonomy .seg.active", (el) => el.dataset.mode).catch(() => "");

@@ -1,8 +1,8 @@
 /* OpenSidekick shared UI layer ----------------------------------------------
    One token set for every surface we own: the side panel, the settings page and
-   the in-page overlay. The values are lifted from the opensidekick.app landing
-   page so the extension, the store screenshots and the website read as one
-   product instead of three palettes.
+   the in-page overlay. Light, slightly warm paper with near-black ink, a tight
+   4/8/12 radius set, a five-step type scale (12/13/14/16/20), and the accent
+   spent on two things per view: the primary action and the active state.
 
    Linked as a second stylesheet BEFORE the page stylesheet (never @import,
    which serialises the fetch). Page stylesheets may only add layout and
@@ -15,42 +15,48 @@
    -------------------------------------------------------------------------- */
 
 :root {
-  /* Surfaces */
-  --os-paper: #f6f7f9;
+  /* Surfaces: paper is the page, surface the things on it (composer, cards,
+     menus), sunken the wells (segmented control, code, neutral tags). */
+  --os-paper: #f5f5f4;
   --os-surface: #ffffff;
-  --os-surface-2: #fbfbfe;
-  --os-line: #e5e6ec;
-  --os-line-2: #d3d4dd;
+  --os-surface-2: #fafaf9;
+  --os-sunken: #ecebe9;
+  --os-raised: #ffffff;
+  --os-hover: rgba(28, 25, 23, 0.06);
+
+  /* Lines */
+  --os-line: #e7e5e4;
+  --os-line-2: #d6d3d1;
+  --os-line-strong: #8a8580;
 
   /* Text */
-  --os-ink: #15151a;
-  --os-ink-soft: #3c3c46;
-  --os-muted: #6c6d7a;
+  --os-ink: #1c1917;
+  --os-ink-soft: #44403c;
+  --os-muted: #6b6763;
 
   /* Brand */
   --os-accent: #4f46e5;
-  --os-accent-ink: #3a30b8;
-  --os-accent-soft: #eef0ff;
-  --os-accent-hover: #453dcf;
-  /* Text/icon colour ON the accent fill. White fails AA on the lighter dark
-     accent (3.24:1), so dark mode flips it. */
+  --os-accent-hover: #4338ca;
+  --os-accent-ink: #4338ca;
+  --os-accent-soft: #eef0fe;
+  --os-accent-ring: rgba(79, 70, 229, 0.2);
   --os-on-accent: #ffffff;
 
   /* Semantics */
-  --os-good: #12855a;
-  --os-good-ink: #0f7450;
-  --os-good-soft: #e6f4ee;
-  --os-warn: #b8780a;
-  --os-warn-ink: #8a5a00;
-  --os-warn-soft: #fdf3e2;
-  --os-bad: #c2415a;
-  --os-bad-ink: #a3344c;
-  --os-bad-soft: #fdecef;
+  --os-good: #15803d;
+  --os-good-ink: #166534;
+  --os-good-soft: #e7f6ec;
+  --os-warn: #b45309;
+  --os-warn-ink: #92400e;
+  --os-warn-soft: #fdf2df;
+  --os-bad: #dc2626;
+  --os-bad-ink: #b91c1c;
+  --os-bad-soft: #fdeceb;
 
   /* Shape */
-  --os-r-sm: 7px;
-  --os-r: 10px;
-  --os-r-lg: 14px;
+  --os-r-sm: 4px;
+  --os-r: 8px;
+  --os-r-lg: 12px;
   --os-r-pill: 999px;
 
   /* Space */
@@ -61,89 +67,117 @@
   --os-5: 20px;
   --os-6: 24px;
   --os-8: 32px;
+  --os-10: 40px;
 
   /* Depth */
-  --os-shadow-1: 0 1px 2px rgba(21, 21, 26, 0.06);
-  --os-shadow-2: 0 8px 24px -12px rgba(30, 27, 90, 0.28);
-  --os-shadow-3: 0 24px 60px -24px rgba(30, 27, 90, 0.4);
+  --os-shadow-1: 0 1px 2px rgba(28, 25, 23, 0.06);
+  --os-shadow-2: 0 1px 2px rgba(28, 25, 23, 0.06), 0 8px 24px -8px rgba(28, 25, 23, 0.16);
+  --os-shadow-3: 0 24px 48px -16px rgba(28, 25, 23, 0.24);
 
-  /* Type */
+  /* Type: five sizes, each with its line height; prose runs at 1.5. */
+  --os-fs-12: 12px;
+  --os-lh-12: 16px;
+  --os-fs-13: 13px;
+  --os-lh-13: 18px;
+  --os-fs-14: 14px;
+  --os-lh-14: 20px;
+  --os-fs-16: 16px;
+  --os-lh-16: 22px;
+  --os-fs-20: 20px;
+  --os-lh-20: 26px;
+  --os-lh-prose: 1.5;
+  --os-w-regular: 400;
+  --os-w-medium: 500;
+  --os-w-semibold: 600;
+  --os-w-bold: 700;
+  --os-track-label: 0.08em;
   --os-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
   --os-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-
-  /* One focus treatment everywhere: a surface-coloured gap, then the accent. */
-  --os-focus: 0 0 0 2px var(--os-surface), 0 0 0 4px var(--os-accent);
 
   color-scheme: light dark;
 }
 
 /* Dark is declared twice on purpose: once for the system preference (skipped
    when a future toggle has pinned light) and once for an explicit
-   [data-theme="dark"], so the toggle wins in both directions. */
+   [data-theme="dark"], so the toggle wins in both directions. Near-black with
+   the same warm bias as light. White fails AA on the lighter dark accent, so
+   on-accent flips to the paper colour. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --os-paper: #131316;
-    --os-surface: #1b1b1f;
-    --os-surface-2: #232329;
-    --os-line: #2e2e35;
-    --os-line-2: #3c3c45;
+    --os-paper: #141413;
+    --os-surface: #1c1c1a;
+    --os-surface-2: #222220;
+    --os-sunken: #262624;
+    --os-raised: #33332f;
+    --os-hover: rgba(255, 255, 255, 0.06);
 
-    --os-ink: #ececed;
-    --os-ink-soft: #c3c3cb;
-    --os-muted: #9596a1;
+    --os-line: #2e2e2b;
+    --os-line-2: #43423e;
+    --os-line-strong: #6f6d68;
+
+    --os-ink: #ededec;
+    --os-ink-soft: #c9c8c4;
+    --os-muted: #9d9b96;
 
     --os-accent: #8b7dff;
-    --os-accent-ink: #b3a9ff;
-    --os-accent-soft: #272544;
-    --os-accent-hover: #9c90ff;
-    --os-on-accent: #15151a;
+    --os-accent-hover: #9d91ff;
+    --os-accent-ink: #b4aaff;
+    --os-accent-soft: #262441;
+    --os-accent-ring: rgba(139, 125, 255, 0.3);
+    --os-on-accent: #141413;
 
     --os-good: #4ade80;
-    --os-good-ink: #4ade80;
-    --os-good-soft: #122a1f;
-    --os-warn: #f0b24a;
-    --os-warn-ink: #f0b24a;
-    --os-warn-soft: #2e2411;
-    --os-bad: #ff8097;
-    --os-bad-ink: #ff8097;
-    --os-bad-soft: #331a20;
+    --os-good-ink: #6ee7a0;
+    --os-good-soft: #11281b;
+    --os-warn: #f59e0b;
+    --os-warn-ink: #fbbf5c;
+    --os-warn-soft: #2e2210;
+    --os-bad: #f87171;
+    --os-bad-ink: #fca5a5;
+    --os-bad-soft: #331b1b;
 
     --os-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.5);
-    --os-shadow-2: 0 8px 24px -12px rgba(0, 0, 0, 0.7);
-    --os-shadow-3: 0 24px 60px -24px rgba(0, 0, 0, 0.8);
+    --os-shadow-2: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px -8px rgba(0, 0, 0, 0.6);
+    --os-shadow-3: 0 24px 48px -16px rgba(0, 0, 0, 0.7);
   }
 }
 
 :root[data-theme="dark"] {
-  --os-paper: #131316;
-  --os-surface: #1b1b1f;
-  --os-surface-2: #232329;
-  --os-line: #2e2e35;
-  --os-line-2: #3c3c45;
+  --os-paper: #141413;
+  --os-surface: #1c1c1a;
+  --os-surface-2: #222220;
+  --os-sunken: #262624;
+  --os-raised: #33332f;
+  --os-hover: rgba(255, 255, 255, 0.06);
 
-  --os-ink: #ececed;
-  --os-ink-soft: #c3c3cb;
-  --os-muted: #9596a1;
+  --os-line: #2e2e2b;
+  --os-line-2: #43423e;
+  --os-line-strong: #6f6d68;
+
+  --os-ink: #ededec;
+  --os-ink-soft: #c9c8c4;
+  --os-muted: #9d9b96;
 
   --os-accent: #8b7dff;
-  --os-accent-ink: #b3a9ff;
-  --os-accent-soft: #272544;
-  --os-accent-hover: #9c90ff;
-  --os-on-accent: #15151a;
+  --os-accent-hover: #9d91ff;
+  --os-accent-ink: #b4aaff;
+  --os-accent-soft: #262441;
+  --os-accent-ring: rgba(139, 125, 255, 0.3);
+  --os-on-accent: #141413;
 
   --os-good: #4ade80;
-  --os-good-ink: #4ade80;
-  --os-good-soft: #122a1f;
-  --os-warn: #f0b24a;
-  --os-warn-ink: #f0b24a;
-  --os-warn-soft: #2e2411;
-  --os-bad: #ff8097;
-  --os-bad-ink: #ff8097;
-  --os-bad-soft: #331a20;
+  --os-good-ink: #6ee7a0;
+  --os-good-soft: #11281b;
+  --os-warn: #f59e0b;
+  --os-warn-ink: #fbbf5c;
+  --os-warn-soft: #2e2210;
+  --os-bad: #f87171;
+  --os-bad-ink: #fca5a5;
+  --os-bad-soft: #331b1b;
 
   --os-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.5);
-  --os-shadow-2: 0 8px 24px -12px rgba(0, 0, 0, 0.7);
-  --os-shadow-3: 0 24px 60px -24px rgba(0, 0, 0, 0.8);
+  --os-shadow-2: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px -8px rgba(0, 0, 0, 0.6);
+  --os-shadow-3: 0 24px 48px -16px rgba(0, 0, 0, 0.7);
 }
 
 * {
@@ -157,36 +191,57 @@ body {
 
 /* Type ramp -------------------------------------------------------------- */
 
-.os-display {
-  font-size: 20px;
-  line-height: 1.15;
-  font-weight: 750;
-  letter-spacing: -0.02em;
-  margin: 0;
+h1,
+h2,
+h3,
+.empty-title {
+  text-wrap: balance;
 }
-.os-title {
-  font-size: 16px;
-  line-height: 1.25;
-  font-weight: 700;
+
+.os-display {
+  font-size: var(--os-fs-20);
+  line-height: var(--os-lh-20);
+  font-weight: var(--os-w-bold);
   letter-spacing: -0.01em;
   margin: 0;
 }
+.os-title {
+  font-size: var(--os-fs-16);
+  line-height: var(--os-lh-16);
+  font-weight: var(--os-w-semibold);
+  margin: 0;
+}
+/* Uppercase labels: mono, small, tracked, and never in the accent. */
 .eyebrow {
   font-family: var(--os-mono);
-  font-size: 11px;
-  font-weight: 650;
-  letter-spacing: 0.14em;
+  font-size: var(--os-fs-12);
+  line-height: var(--os-lh-12);
+  font-weight: var(--os-w-semibold);
+  letter-spacing: var(--os-track-label);
   text-transform: uppercase;
-  color: var(--os-accent-ink);
+  color: var(--os-muted);
 }
 .mono {
   font-family: var(--os-mono);
-  font-size: 12px;
-  line-height: 1.45;
+  font-size: var(--os-fs-12);
+  line-height: var(--os-lh-12);
+}
+
+/* Counts, durations and prices line up when they change. */
+.log-sum,
+.log-dur,
+.wf-count,
+.rec-banner,
+.plan-steps,
+#temp-value,
+input[type="number"],
+.interval-hint,
+.test-line {
+  font-variant-numeric: tabular-nums;
 }
 
 /* Icons: an inline <svg> sprite is the only CSP-safe, no-fetch way to get real
-   icons into an MV3 page. 16px glyph in a 30px target, stroked in currentColor
+   icons into an MV3 page. 16px glyph in a 32px target, stroked in currentColor
    so hover/active states need no second asset. */
 .ic {
   width: 16px;
@@ -207,13 +262,14 @@ body {
   align-items: center;
   justify-content: center;
   gap: var(--os-2);
+  min-height: 36px;
+  padding: 0 14px;
   font: inherit;
-  font-size: 13.5px;
-  font-weight: 650;
-  line-height: 1.2;
+  font-size: var(--os-fs-13);
+  line-height: var(--os-lh-12);
+  font-weight: var(--os-w-semibold);
   border: 1px solid transparent;
-  border-radius: 9px;
-  padding: 9px 15px;
+  border-radius: var(--os-r);
   background: var(--os-accent);
   color: var(--os-on-accent);
   cursor: pointer;
@@ -225,19 +281,27 @@ body {
   background: var(--os-accent-hover);
 }
 .btn:disabled {
-  opacity: 0.55;
+  opacity: 0.5;
   cursor: default;
 }
+.btn.small {
+  min-height: 32px;
+  padding: 0 12px;
+}
+.btn.small .ic {
+  width: 14px;
+  height: 14px;
+}
 
+/* Secondary buttons never turn indigo on hover: the hover tint is laid over
+   the surface so it reads the same on paper and on a card. */
 .btn-ghost {
   background: var(--os-surface);
   color: var(--os-ink);
   border-color: var(--os-line-2);
 }
 .btn-ghost:hover:not(:disabled) {
-  background: var(--os-surface);
-  border-color: var(--os-accent);
-  color: var(--os-accent-ink);
+  background: linear-gradient(var(--os-hover), var(--os-hover)) var(--os-surface);
 }
 
 .btn-danger {
@@ -249,17 +313,20 @@ body {
   background: var(--os-bad-soft);
 }
 
+/* Static tags. Neutral by default; the semantic pairs carry meaning, and
+   `.accent` is reserved for the one "Active" marker. */
 .chip {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  font-size: 11px;
-  line-height: 1.5;
-  border-radius: var(--os-r-pill);
-  padding: 2px 9px;
-  background: var(--os-accent-soft);
-  color: var(--os-accent-ink);
-  border: 1px solid transparent;
+  gap: var(--os-1);
+  font-size: var(--os-fs-12);
+  line-height: var(--os-lh-12);
+  font-weight: var(--os-w-medium);
+  border: 0;
+  border-radius: var(--os-r-sm);
+  padding: 2px 6px;
+  background: var(--os-sunken);
+  color: var(--os-ink-soft);
   white-space: nowrap;
 }
 .chip.good {
@@ -274,26 +341,30 @@ body {
   background: var(--os-bad-soft);
   color: var(--os-bad-ink);
 }
+.chip.accent {
+  background: var(--os-accent-soft);
+  color: var(--os-accent-ink);
+}
 .chip.mono {
   font-family: var(--os-mono);
-  font-size: 11px;
 }
 
 .card {
   background: var(--os-surface);
   border: 1px solid var(--os-line);
   border-radius: var(--os-r-lg);
-  padding: 18px;
+  padding: var(--os-5);
 }
 
 .field {
-  margin-bottom: var(--os-3);
+  margin-bottom: var(--os-4);
 }
 .field > label:not(.radio) {
   display: block;
-  font-size: 13px;
-  font-weight: 600;
-  margin-bottom: 5px;
+  font-size: var(--os-fs-13);
+  line-height: var(--os-lh-13);
+  font-weight: var(--os-w-semibold);
+  margin-bottom: var(--os-1);
   color: var(--os-ink);
 }
 
@@ -306,33 +377,62 @@ body {
 .os-form input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]) {
   width: 100%;
   min-height: 36px;
-  padding: 7px 10px;
-  border: 1px solid var(--os-line);
-  border-radius: 8px;
-  background: var(--os-surface-2);
+  padding: 0 10px;
+  /* line-strong, not line-2: a control boundary needs 3:1 against the surface (WCAG 1.4.11). */
+  border: 1px solid var(--os-line-strong);
+  border-radius: var(--os-r);
+  background: var(--os-surface);
   color: var(--os-ink);
   font: inherit;
+  font-size: var(--os-fs-14);
+  line-height: var(--os-lh-14);
+}
+.os-form textarea {
+  padding: 8px 10px;
 }
 .input::placeholder,
+.os-form input::placeholder,
 .os-form textarea::placeholder {
   color: var(--os-muted);
 }
 .input:hover,
 .os-form select:hover,
+.os-form textarea:hover,
 .os-form input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):hover {
-  border-color: var(--os-line-2);
+  border-color: var(--os-muted);
+}
+/* Text fields show focus as an accent border plus a soft ring, on any focus
+   (a caret alone is too easy to lose). */
+.input:focus,
+.os-form select:focus,
+.os-form textarea:focus,
+.os-form input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):focus {
+  outline: none;
+  border-color: var(--os-accent);
+  box-shadow: 0 0 0 3px var(--os-accent-ring);
 }
 
 a {
-  color: var(--os-accent-ink);
+  color: inherit;
+  text-decoration-color: var(--os-line-strong);
   text-underline-offset: 2px;
 }
 
-/* One focus treatment, keyboard only. `outline:none` is safe here because the
-   box-shadow ring replaces it; there is no state without a visible ring. */
+kbd {
+  font-family: var(--os-mono);
+  font-size: var(--os-fs-12);
+  line-height: var(--os-lh-12);
+  background: var(--os-sunken);
+  color: var(--os-ink-soft);
+  border-radius: var(--os-r-sm);
+  padding: 0 4px;
+}
+
+/* One focus treatment, keyboard only: a 2px accent outline, offset so it never
+   sits on top of the control's own border. */
 :focus-visible {
-  outline: none;
-  box-shadow: var(--os-focus);
+  outline: 2px solid var(--os-accent);
+  outline-offset: 2px;
 }
 
 /* The hidden attribute must beat any component display rule (several of ours

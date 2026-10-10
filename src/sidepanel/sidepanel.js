@@ -162,7 +162,7 @@ function updateConfiguredUI(isConfigured) {
   const examples = document.querySelector(".examples");
   if (examples) examples.hidden = !isConfigured;
   els.input.placeholder = isConfigured
-    ? "Ask about or act on this page…  ( / for saved prompts )"
+    ? "Ask about or act on this page…"
     : "Add a model in Settings to get started →";
 }
 
@@ -304,7 +304,9 @@ async function refreshContextHint() {
     if (rule === "allow") state = '<span class="site-state ok">allowed</span>';
     else if (rule === "block") state = '<span class="site-state blocked">blocked</span>';
     else if (allowlist) state = '<span class="site-state warn">not allowed yet</span>';
-    els.contextHint.innerHTML = `On: ${escapeHtml(url.hostname)}${state ? " · " + state : ""}`;
+    // Host and state are separate boxes so a long host ellipsizes while the
+    // rule (the part that matters) stays whole.
+    els.contextHint.innerHTML = `<span class="site-host">On: ${escapeHtml(url.hostname)}</span>${state ? '<span class="site-sep"> · </span>' + state : ""}`;
   } catch {
     /* ignore */
   }
@@ -318,7 +320,7 @@ function toggleSiteMenu() {
 }
 
 function siteMenuOutside(e) {
-  if (els.siteMenu.contains(e.target) || e.target === els.contextHint) return;
+  if (els.siteMenu.contains(e.target) || els.contextHint.contains(e.target)) return;
   hideSiteMenu();
 }
 

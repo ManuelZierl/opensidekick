@@ -3,28 +3,31 @@
 
    The page is a two-column shell: a sticky nav rail (the eight cards used to
    be eight equal numbered blocks in one column, with no way to see the shape
-   of the page) and a content column capped at a readable measure. */
+   of the page) and a content column capped at a readable measure. Indigo is
+   spent on the one primary button (Add), the active rail link and the
+   "Active" tag; everything else is ink, grey and the semantic pairs. */
 
 body {
   margin: 0;
   background: var(--os-paper);
   color: var(--os-ink);
-  font-size: 14px;
-  line-height: 1.55;
+  font-size: var(--os-fs-14);
+  line-height: var(--os-lh-14);
 }
 
-/* Top bar — the landing page's bar, same height and same proportions. */
+/* Top bar ---------------------------------------------------------------- */
+
 .bar {
   position: sticky;
   top: 0;
   z-index: 20;
-  height: 60px;
+  height: 56px;
   background: var(--os-paper);
   border-bottom: 1px solid var(--os-line);
 }
 .bar-inner {
   max-width: 1060px;
-  height: 60px;
+  height: 56px;
   margin: 0 auto;
   padding: 0 24px;
   display: flex;
@@ -35,10 +38,10 @@ body {
 .brand {
   display: flex;
   align-items: center;
-  gap: 11px;
-  font-weight: 750;
-  letter-spacing: -0.01em;
-  font-size: 17px;
+  gap: 12px;
+  font-weight: var(--os-w-semibold);
+  font-size: var(--os-fs-16);
+  line-height: var(--os-lh-16);
 }
 .mark {
   width: 26px;
@@ -58,12 +61,12 @@ body {
 }
 .brand-sub {
   font-family: var(--os-mono);
-  font-size: 11px;
-  font-weight: 650;
-  letter-spacing: 0.14em;
+  font-size: var(--os-fs-12);
+  line-height: var(--os-lh-12);
+  font-weight: var(--os-w-semibold);
+  letter-spacing: var(--os-track-label);
   text-transform: uppercase;
   color: var(--os-muted);
-  padding-left: 2px;
 }
 .bar nav {
   display: flex;
@@ -74,14 +77,15 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-height: 32px;
   color: var(--os-ink-soft);
   text-decoration: none;
-  font-size: 14px;
-  padding: 8px 10px;
-  border-radius: 8px;
+  font-size: var(--os-fs-14);
+  padding: 0 10px;
+  border-radius: var(--os-r);
 }
 .bar nav a.txt:hover {
-  background: var(--os-surface);
+  background: var(--os-hover);
   color: var(--os-ink);
 }
 .bar nav .ic {
@@ -107,33 +111,34 @@ body {
   top: 84px;
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 2px;
 }
 .rail .eyebrow {
-  margin: 14px 0 5px;
-  color: var(--os-muted);
+  margin: 16px 0 4px;
+  padding: 0 10px;
 }
 .rail .eyebrow:first-child {
   margin-top: 0;
 }
 .rail a {
-  display: block;
-  font-size: 13.5px;
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  font-size: var(--os-fs-14);
+  line-height: var(--os-lh-14);
   color: var(--os-ink-soft);
   text-decoration: none;
-  padding: 6px 10px;
-  border-radius: 8px;
-  border-left: 2px solid transparent;
+  padding: 0 10px;
+  border-radius: var(--os-r);
 }
 .rail a:hover {
-  background: var(--os-surface);
+  background: var(--os-hover);
   color: var(--os-ink);
 }
 .rail a.active {
-  background: var(--os-accent-soft);
-  border-left-color: var(--os-accent);
+  background: var(--os-sunken);
   color: var(--os-accent-ink);
-  font-weight: 600;
+  font-weight: var(--os-w-semibold);
 }
 
 .content {
@@ -141,40 +146,80 @@ body {
   max-width: 640px;
 }
 .lede {
-  margin: 0 0 22px;
+  margin: 0 0 24px;
   max-width: 68ch;
-  font-size: 15px;
+  font-size: var(--os-fs-16);
+  line-height: var(--os-lh-16);
   color: var(--os-ink-soft);
 }
 
 /* Cards ----------------------------------------------------------------- */
 
 .card {
-  margin-bottom: 18px;
-  scroll-margin-top: 80px;
+  margin-bottom: 16px;
+  scroll-margin-top: 76px;
 }
 .card > .eyebrow {
-  margin: 0 0 6px;
+  margin: 0 0 4px;
 }
 .card h2 {
   margin: 0 0 4px;
-  font-size: 17px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
+  font-size: var(--os-fs-16);
+  line-height: var(--os-lh-16);
+  font-weight: var(--os-w-semibold);
   display: flex;
   align-items: center;
   gap: 8px;
 }
 .hint {
   color: var(--os-muted);
-  font-size: 12.5px;
+  font-size: var(--os-fs-13);
+  line-height: var(--os-lh-13);
   margin: 4px 0 12px;
   max-width: 68ch;
 }
 .empty-note {
   color: var(--os-muted);
-  font-size: 13px;
+  font-size: var(--os-fs-13);
+  line-height: var(--os-lh-13);
   font-style: italic;
+}
+
+/* Learn more: the one-line hint stays visible (it says what leaves the
+   browser); the long explanation folds under it. */
+.hint + .more {
+  margin-top: -10px;
+}
+.more {
+  margin: 0 0 12px;
+}
+.more > summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  list-style: none;
+  cursor: pointer;
+  font-size: var(--os-fs-12);
+  line-height: var(--os-lh-12);
+  font-weight: var(--os-w-medium);
+  color: var(--os-muted);
+  text-decoration: underline;
+  text-decoration-color: var(--os-line-strong);
+  text-underline-offset: 2px;
+  border-radius: var(--os-r-sm);
+}
+.more > summary::-webkit-details-marker {
+  display: none;
+}
+.more > summary:hover {
+  color: var(--os-ink);
+}
+.more > .hint {
+  margin: 2px 0 0;
+}
+.field > .more:last-child,
+.card > .field:last-child {
+  margin-bottom: 0;
 }
 
 /* Extras: a card that is also a disclosure. Closed, it is one line; open, it
@@ -185,8 +230,8 @@ body {
 .xhead {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 14px 18px;
+  gap: 12px;
+  padding: 16px 20px;
   cursor: pointer;
   list-style: none;
   border-radius: var(--os-r-lg);
@@ -195,10 +240,7 @@ body {
   display: none;
 }
 .xhead:hover {
-  background: var(--os-surface-2);
-}
-.xhead .eyebrow {
-  color: var(--os-muted);
+  background: var(--os-hover);
 }
 .xhead h2 {
   margin: 0;
@@ -216,33 +258,34 @@ body {
   transform: rotate(180deg);
 }
 .xbody {
-  padding: 14px 18px 18px;
+  padding: 16px 20px 20px;
 }
 .xbody > .hint:first-child {
   margin-top: 0;
 }
 
-/* Model-picking help --------------------------------------------------- */
-
+/* Model-picking help: a muted disclosure row, not a box. */
 .model-help {
-  margin: 0 0 14px;
-  border: 1px solid var(--os-line);
-  border-radius: var(--os-r-sm);
-  background: var(--os-surface-2);
-  font-size: 13px;
+  margin: 0 0 12px;
+  font-size: var(--os-fs-13);
+  line-height: var(--os-lh-13);
 }
 .model-help > summary {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
+  min-height: 32px;
   list-style: none;
   cursor: pointer;
-  padding: 9px 12px;
-  color: var(--os-accent-ink);
-  font-weight: 600;
+  color: var(--os-muted);
+  font-weight: var(--os-w-medium);
+  border-radius: var(--os-r);
 }
 .model-help > summary::-webkit-details-marker {
   display: none;
+}
+.model-help > summary:hover {
+  color: var(--os-ink);
 }
 .model-help > summary .ic {
   width: 14px;
@@ -252,12 +295,13 @@ body {
 .model-help[open] > summary .ic {
   transform: rotate(180deg);
 }
-.model-help[open] > summary {
-  border-bottom: 1px solid var(--os-line);
-}
 .model-help-body {
-  padding: 6px 14px 10px;
+  padding: 4px 0 4px 20px;
   max-width: 68ch;
+  color: var(--os-ink-soft);
+}
+.model-help-body p {
+  margin: 0 0 8px;
 }
 .model-help-body ul {
   margin: 8px 0;
@@ -269,14 +313,12 @@ body {
 .model-help-body .warn {
   color: var(--os-warn-ink);
 }
-.model-help-body code,
-.test-line code,
-.hint code {
-  background: var(--os-accent-soft);
-  color: var(--os-accent-ink);
-  padding: 1px 5px;
-  border-radius: 4px;
-  font-size: 12px;
+code {
+  background: var(--os-sunken);
+  color: var(--os-ink-soft);
+  padding: 1px 4px;
+  border-radius: var(--os-r-sm);
+  font-size: var(--os-fs-12);
   font-family: var(--os-mono);
 }
 
@@ -284,13 +326,16 @@ body {
 
 .test-status {
   margin-top: 8px;
+  padding: 8px 12px;
+  border-radius: var(--os-r);
+  background: var(--os-paper);
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 .test-line {
-  font-size: 12.5px;
-  line-height: 1.45;
+  font-size: var(--os-fs-13);
+  line-height: var(--os-lh-13);
 }
 .test-line.ok {
   color: var(--os-good-ink);
@@ -311,49 +356,42 @@ body {
   width: 6ch;
   font-family: var(--os-mono);
 }
-.test-line code {
-  font-size: 11.5px;
-}
 
 /* Forms ---------------------------------------------------------------- */
 
 .add-row {
   display: flex;
   gap: 8px;
-  margin-bottom: 14px;
+  margin-bottom: 16px;
 }
 .add-row select {
   flex: 1;
 }
-.btn.small {
-  padding: 6px 11px;
-  font-size: 13px;
-  font-weight: 600;
-}
-.btn.small .ic {
-  width: 14px;
-  height: 14px;
-}
 .link-btn {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
   background: none;
   border: none;
-  color: var(--os-bad-ink);
+  color: var(--os-muted);
   cursor: pointer;
   font: inherit;
-  font-size: 13px;
+  font-size: var(--os-fs-13);
   margin-left: auto;
-  padding: 4px 6px;
-  border-radius: var(--os-r-sm);
+  padding: 0 8px;
+  border-radius: var(--os-r);
 }
 .link-btn:hover {
   background: var(--os-bad-soft);
+  color: var(--os-bad-ink);
 }
 
 .field label:not(.radio) {
   display: block;
-  font-size: 13px;
-  font-weight: 600;
-  margin-bottom: 5px;
+  font-size: var(--os-fs-13);
+  line-height: var(--os-lh-13);
+  font-weight: var(--os-w-semibold);
+  margin-bottom: 4px;
 }
 .model-row {
   display: flex;
@@ -363,9 +401,12 @@ body {
   flex: 1;
   min-width: 0;
 }
+.model-row .btn.small {
+  min-height: 36px;
+}
 .fetch-status {
   margin: 4px 0 0;
-  min-height: 14px;
+  min-height: 16px;
 }
 
 /* Suggested models: chips that fill the Model field in one click. */
@@ -373,9 +414,10 @@ body {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   margin-top: 8px;
-  font-size: 12.5px;
+  font-size: var(--os-fs-13);
+  line-height: var(--os-lh-13);
 }
 .suggest-label {
   color: var(--os-muted);
@@ -384,22 +426,30 @@ body {
   display: contents;
 }
 .suggest-chip {
+  min-height: 28px;
+  padding: 0 4px 0 10px;
+  gap: 6px;
+  border: 1px solid var(--os-line-2);
+  border-radius: var(--os-r-pill);
+  background: var(--os-surface);
+  color: var(--os-ink);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--os-fs-13);
+  font-weight: var(--os-w-regular);
   cursor: pointer;
   transition: border-color 120ms ease;
 }
 .suggest-chip:hover {
-  border-color: var(--os-accent);
+  border-color: var(--os-line-strong);
 }
 .suggest-chip .kind-tag {
   font-family: var(--os-mono);
-  font-size: 10px;
-  line-height: 1.4;
-  padding: 0 5px;
-  border-radius: var(--os-r-pill);
-  background: var(--os-surface);
-  color: var(--os-ink-soft);
+  font-size: var(--os-fs-12);
+  line-height: var(--os-lh-12);
+  padding: 2px 4px;
+  border-radius: var(--os-r-sm);
+  background: var(--os-sunken);
+  color: var(--os-muted);
 }
 /* Not among the models this provider returned: still clickable, but quieter. */
 .suggest-chip.off-list {
@@ -408,16 +458,16 @@ body {
   border: 1px dashed var(--os-line-2);
 }
 .suggest-chip.off-list:hover {
-  border-color: var(--os-accent);
-}
-.suggest-chip.off-list .kind-tag {
-  background: var(--os-surface-2);
-  color: var(--os-muted);
+  border-color: var(--os-line-strong);
 }
 .suggest-link {
   margin-left: auto;
-  font-size: 12px;
+  font-size: var(--os-fs-12);
+  color: var(--os-muted);
   white-space: nowrap;
+}
+.suggest-link:hover {
+  color: var(--os-ink);
 }
 .grid2 {
   display: grid;
@@ -437,8 +487,9 @@ body {
   align-items: center;
   gap: 8px;
   cursor: pointer;
-  font-size: 13.5px;
-  font-weight: 400;
+  font-size: var(--os-fs-14);
+  line-height: var(--os-lh-14);
+  font-weight: var(--os-w-regular);
 }
 input[type="range"] {
   width: 100%;
@@ -449,55 +500,58 @@ input[type="radio"] {
   accent-color: var(--os-accent);
 }
 .key-link {
-  font-weight: 400;
-  font-size: 12px;
+  font-weight: var(--os-w-regular);
+  font-size: var(--os-fs-12);
+  color: var(--os-muted);
   margin-left: 6px;
+}
+.key-link:hover {
+  color: var(--os-ink);
 }
 
 /* Providers ------------------------------------------------------------ */
 
+/* The active provider is marked by its radio and the "Active" tag; the card
+   itself only firms up its border. No tint, no rail. */
 .provider {
   border: 1px solid var(--os-line);
-  border-left: 3px solid transparent;
   border-radius: var(--os-r-lg);
-  padding: 14px;
+  padding: 16px;
   margin-bottom: 12px;
   background: var(--os-surface);
 }
-/* The active provider gets an accent bar and a tint — the old treatment was a
-   1px box-shadow outside a 1px border, which read as a double border. */
 .provider.active {
-  border-left-color: var(--os-accent);
-  background: var(--os-accent-soft);
+  border-color: var(--os-line-2);
 }
-.provider.active .input,
-.provider.active input,
-.provider.active select {
-  background: var(--os-surface);
+.provider:not(.active) .active-tag {
+  display: none;
 }
 .provider-head {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 10px;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.provider-body > .field:last-child {
+  margin-bottom: 0;
 }
 .active-radio {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-weight: 650;
+  font-weight: var(--os-w-semibold);
   cursor: pointer;
 }
 .type-badge {
   font-family: var(--os-mono);
-  font-size: 10.5px;
-  background: var(--os-surface);
+  font-size: var(--os-fs-12);
+  line-height: 18px;
   color: var(--os-muted);
   border: 1px solid var(--os-line);
-  border-radius: var(--os-r-pill);
-  padding: 2px 8px;
+  border-radius: var(--os-r-sm);
+  padding: 0 6px;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--os-track-label);
 }
 
 /* Site permissions ----------------------------------------------------- */
@@ -505,29 +559,32 @@ input[type="radio"] {
 .perm-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 .perm-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 7px 10px;
+  gap: 8px;
+  padding: 2px 4px 2px 12px;
   border: 1px solid var(--os-line);
-  border-radius: 8px;
-  font-size: 13px;
+  border-radius: var(--os-r);
+  font-size: var(--os-fs-13);
+  line-height: var(--os-lh-13);
   background: var(--os-surface-2);
 }
 .perm-item .origin {
   font-family: var(--os-mono);
-  font-size: 12px;
+  font-size: var(--os-fs-12);
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .perm-state {
-  font-size: 11px;
-  padding: 1px 9px;
-  border-radius: var(--os-r-pill);
+  font-size: var(--os-fs-12);
+  line-height: var(--os-lh-12);
+  font-weight: var(--os-w-medium);
+  padding: 2px 6px;
+  border-radius: var(--os-r-sm);
 }
 .perm-state.allow {
   background: var(--os-good-soft);
@@ -582,29 +639,34 @@ textarea.s-prompt {
   margin-left: auto;
 }
 .interval-hint {
-  font-size: 11px;
+  font-size: var(--os-fs-12);
+  line-height: var(--os-lh-12);
   color: var(--os-muted);
-  margin-top: 2px;
+  margin-top: 4px;
 }
 .enabled-label {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 13.5px;
+  font-size: var(--os-fs-14);
   cursor: pointer;
 }
 .wf-steps {
   margin: 8px 0 0;
   padding-left: 20px;
-  font-size: 13px;
+  font-size: var(--os-fs-13);
+  line-height: var(--os-lh-13);
 }
 .wf-steps li {
-  margin: 3px 0;
+  margin: 4px 0;
 }
 
 /* Smart checks: a stack of checkbox rows, each with its own hint underneath. */
 #smart-checks .radio + .hint {
   margin: 2px 0 10px 26px;
+}
+#smart-checks .hint + .more {
+  margin-left: 26px;
 }
 
 /* The endpoint override sends a real API key to a URL the user typed, so say
@@ -616,8 +678,9 @@ textarea.s-prompt {
 /* Chrome ---------------------------------------------------------------- */
 
 footer {
-  margin-top: 26px;
-  font-size: 12.5px;
+  margin-top: 24px;
+  font-size: var(--os-fs-13);
+  line-height: var(--os-lh-13);
   color: var(--os-muted);
   max-width: 68ch;
 }
@@ -626,16 +689,17 @@ footer {
    where the eye already is. */
 .toast {
   position: fixed;
-  top: 72px;
+  top: 68px;
   right: 24px;
   z-index: 40;
   background: var(--os-good-soft);
   color: var(--os-good-ink);
   border: 1px solid var(--os-good);
-  padding: 6px 14px;
+  padding: 4px 12px;
   border-radius: var(--os-r-pill);
-  font-size: 12.5px;
-  font-weight: 600;
+  font-size: var(--os-fs-12);
+  line-height: var(--os-lh-12);
+  font-weight: var(--os-w-semibold);
   box-shadow: var(--os-shadow-2);
   animation: toast-in 160ms ease-out;
 }
@@ -653,20 +717,18 @@ footer {
 @media (max-width: 899px) {
   .shell {
     grid-template-columns: minmax(0, 1fr);
-    gap: 18px;
+    gap: 16px;
     padding: 16px 16px 64px;
   }
   /* The rail becomes a sticky chip row under the bar. */
   .rail {
     position: sticky;
-    top: 60px;
+    top: 56px;
     flex-direction: row;
-    gap: 6px;
+    gap: 8px;
     overflow-x: auto;
-    padding: 10px 0;
+    padding: 8px 16px;
     margin: 0 -16px;
-    padding-left: 16px;
-    padding-right: 16px;
     background: var(--os-paper);
     border-bottom: 1px solid var(--os-line);
     z-index: 15;
@@ -677,22 +739,21 @@ footer {
   .rail a {
     flex: 0 0 auto;
     border: 1px solid var(--os-line);
-    border-left-width: 1px;
     border-radius: var(--os-r-pill);
-    padding: 5px 12px;
+    padding: 0 12px;
     background: var(--os-surface);
     white-space: nowrap;
   }
   .rail a.active {
-    border-color: var(--os-accent);
-    border-left-color: var(--os-accent);
+    background: var(--os-sunken);
+    color: var(--os-accent-ink);
   }
   .content {
     max-width: none;
   }
   .toast {
     top: auto;
-    bottom: 18px;
+    bottom: 16px;
     right: 16px;
   }
 }

@@ -879,7 +879,7 @@ function renderScheduled() {
         <div><label>&nbsp;</label><label class="enabled-label"><input type="checkbox" class="s-enabled" /> Enabled</label></div>
       </div>
       <div class="sched-actions">
-        <button class="btn small s-run">Run now</button>
+        <button class="btn btn-ghost small s-run">Run now</button>
         <button class="link-btn s-del">Remove</button>
       </div>`;
     const q = (sel) => row.querySelector(sel);
@@ -978,7 +978,7 @@ function renderMcp() {
       <div class="field"><label>Auth token (optional)</label><input type="password" class="m-token" placeholder="Bearer token, if the server needs one" autocomplete="off" /></div>
       <div class="sched-actions">
         <label class="enabled-label"><input type="checkbox" class="m-enabled" /> Enabled</label>
-        <button class="btn small m-test">Test</button>
+        <button class="btn btn-ghost small m-test">Test</button>
         <button class="link-btn m-del">Remove</button>
       </div>
       <p class="interval-hint m-status"></p>`;

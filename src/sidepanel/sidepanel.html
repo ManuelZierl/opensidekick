@@ -54,6 +54,12 @@
       <symbol id="ic-play" viewBox="0 0 24 24">
         <path d="M8 5.2l11 6.8-11 6.8z" fill="currentColor" stroke="none" />
       </symbol>
+      <symbol id="ic-arrow-right" viewBox="0 0 24 24">
+        <path d="M9 6l6 6-6 6" />
+      </symbol>
+      <symbol id="ic-send" viewBox="0 0 24 24">
+        <path d="M12 19V5M5.5 11.5 12 5l6.5 6.5" />
+      </symbol>
     </svg>
 
     <header class="topbar">
@@ -88,18 +94,15 @@
 
     <div class="messages-wrap">
       <main id="messages" class="messages" aria-live="polite">
+        <!-- One quiet question, anchored just above the composer so the eye
+             lands where the typing happens. -->
         <div id="empty-state" class="empty-state">
-          <p class="eyebrow">Bring your own model</p>
-          <h1 class="os-display">Your browser, any model.</h1>
-          <p class="empty-lede">
-            Ask me to read, summarize, or act on the current page. I can click,
-            type, navigate, and work across tabs — using whichever LLM you
-            configured.
-          </p>
-          <ul class="examples">
-            <li data-example="Summarize this page in 5 bullet points.">Summarize this page in 5 bullets</li>
-            <li data-example="Find the main contact email on this page.">Find the contact email</li>
-            <li data-example="Fill in my name as 'Alex Doe' in the form on this page, but do not submit it.">Fill a form (no submit)</li>
+          <h1 class="empty-title">What should I do on this page?</h1>
+          <p class="empty-sub">I can read, click, type and switch tabs.</p>
+          <ul class="examples" aria-label="Suggestions">
+            <li data-example="Summarize this page in 5 bullet points."><button type="button"><svg class="ic" aria-hidden="true"><use href="#ic-arrow-right" /></svg>Summarize this page in 5 bullets</button></li>
+            <li data-example="Find the main contact email on this page."><button type="button"><svg class="ic" aria-hidden="true"><use href="#ic-arrow-right" /></svg>Find the contact email</button></li>
+            <li data-example="Fill in my name as 'Alex Doe' in the form on this page, but do not submit it."><button type="button"><svg class="ic" aria-hidden="true"><use href="#ic-arrow-right" /></svg>Fill a form (no submit)</button></li>
           </ul>
           <p id="not-configured" class="warn" hidden>
             <svg class="ic"><use href="#ic-alert" /></svg>
@@ -116,13 +119,25 @@
     <form id="composer" class="composer">
       <div id="slash-menu" class="slash-menu" hidden></div>
       <div id="site-menu" class="site-menu" hidden></div>
-      <textarea
-        id="input"
-        rows="1"
-        placeholder="Ask about or act on this page…  ( / for saved prompts )"
-      ></textarea>
+      <!-- The field is the focal object: Send lives inside it, and the
+           approval control sits directly underneath. -->
+      <div class="composer-field">
+        <textarea id="input" rows="2" placeholder="Ask about or act on this page…"></textarea>
+        <div class="composer-bar">
+          <span class="composer-hint"><kbd>/</kbd> saved prompts</span>
+          <div class="composer-buttons">
+            <button type="button" id="stop-btn" class="stop-btn" hidden>
+              <svg class="ic"><use href="#ic-stop" /></svg>
+              Stop
+            </button>
+            <button type="submit" id="send-btn" class="send-btn btn" aria-label="Send" title="Send (Enter)">
+              <svg class="ic" aria-hidden="true"><use href="#ic-send" /></svg>
+            </button>
+          </div>
+        </div>
+      </div>
       <div class="composer-row">
-        <button type="button" id="context-hint" class="site-chip" title="Site rules for this page"></button>
+        <span class="composer-label" aria-hidden="true">Approval</span>
         <div
           id="autonomy"
           class="segmented"
@@ -158,13 +173,7 @@
             Auto
           </button>
         </div>
-        <div class="composer-buttons">
-          <button type="button" id="stop-btn" class="stop-btn" hidden>
-            <svg class="ic"><use href="#ic-stop" /></svg>
-            Stop
-          </button>
-          <button type="submit" id="send-btn" class="send-btn btn">Send</button>
-        </div>
+        <button type="button" id="context-hint" class="site-chip" title="Site rules for this page"></button>
       </div>
     </form>
 

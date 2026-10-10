@@ -21,8 +21,8 @@
       </symbol>
     </svg>
 
-    <!-- Same 60px bar as opensidekick.app, so Settings reads as the same
-         product as the website rather than a stray extension page. -->
+    <!-- A 56px bar with the brand mark, so Settings reads as the same product
+         as the panel and the website rather than a stray extension page. -->
     <header class="bar">
       <div class="bar-inner">
         <div class="brand">
@@ -139,7 +139,11 @@
               <label class="radio"><input type="radio" name="autonomy" value="ask" /> Ask before acting on a new site <span class="chip good">safer</span></label>
               <label class="radio"><input type="radio" name="autonomy" value="auto" /> Act without asking on allowed sites <span class="chip warn">faster</span></label>
             </div>
-            <p class="hint">In “Plan first”, the agent proposes its steps and the sites it will use, and waits for your approval before acting. Sensitive sites (banking, payments, crypto) and purchase/delete actions always confirm, regardless of this setting.</p>
+            <p class="hint">Sensitive sites and purchase or delete actions always confirm.</p>
+            <details class="more">
+              <summary>Learn more</summary>
+              <p class="hint">In “Plan first”, the agent proposes its steps and the sites it will use, and waits for your approval before acting. Sensitive sites (banking, payments, crypto) and purchase/delete actions always confirm, regardless of this setting.</p>
+            </details>
           </div>
 
           <div class="field grid2">
@@ -156,22 +160,34 @@
           <div class="field">
             <label for="temperature">Temperature: <span id="temp-value">0.4</span></label>
             <input type="range" id="temperature" min="0" max="1" step="0.05" />
-            <p class="hint">Lower = more focused and deterministic. Ignored by some models.</p>
+            <p class="hint">Lower is more focused. Some models ignore it.</p>
           </div>
 
           <div class="field">
             <label class="radio"><input type="checkbox" id="enable-vision" /> Enable vision (screenshots) <span class="chip good">on by default</span></label>
-            <p class="hint">Lets the agent take a screenshot so a vision-capable model (Claude, GPT-4o / 4o-mini, Gemini, Llava…) can see the page — useful for images, canvas apps, or visual layout. On by default; <strong>turn off if you use a text-only model</strong> (it can't accept images and screenshots will fail).</p>
+            <p class="hint">Lets a vision model see the page. Turn it off for text-only models.</p>
+            <details class="more">
+              <summary>Learn more</summary>
+              <p class="hint">Lets the agent take a screenshot so a vision-capable model (Claude, GPT-4o / 4o-mini, Gemini, Llava…) can see the page — useful for images, canvas apps, or visual layout. On by default; <strong>turn off if you use a text-only model</strong> (it can't accept images and screenshots will fail).</p>
+            </details>
           </div>
 
           <div class="field">
             <label class="radio"><input type="checkbox" id="enable-js" /> Enable the run-JavaScript tool <span class="chip warn">power user</span></label>
-            <p class="hint">Lets the agent run JavaScript in the page as an escape hatch (still permission-gated per site in “ask” mode). Powerful — enable only if you want it.</p>
+            <p class="hint">Lets the agent run JavaScript in the page. Leave off unless you need it.</p>
+            <details class="more">
+              <summary>Learn more</summary>
+              <p class="hint">Lets the agent run JavaScript in the page as an escape hatch (still permission-gated per site in “ask” mode). Powerful — enable only if you want it.</p>
+            </details>
           </div>
 
           <div class="field">
             <label class="radio"><input type="checkbox" id="enable-cdp" /> Enable console &amp; network reading <span class="chip warn">debugger banner</span></label>
-            <p class="hint">Adds read_console / read_network tools for debugging pages, via Chrome’s debugger. Chrome shows a “debugging this browser” banner while a task runs; it clears when the task ends.</p>
+            <p class="hint">Adds read_console and read_network for debugging pages.</p>
+            <details class="more">
+              <summary>Learn more</summary>
+              <p class="hint">Adds read_console / read_network tools for debugging pages, via Chrome’s debugger. Chrome shows a “debugging this browser” banner while a task runs; it clears when the task ends.</p>
+            </details>
           </div>
         </section>
 
@@ -183,9 +199,13 @@
             <label class="radio"><input type="radio" name="siteAccess" value="all" /> Work on any site <span class="chip">default</span></label>
             <label class="radio"><input type="radio" name="siteAccess" value="allowlist" /> Only work on sites I allow <span class="chip good">locked down</span></label>
           </div>
-          <p class="hint">In "only allowed sites" mode the agent won't read or act on a site that isn't
-            on the list below — it asks first (even in Auto mode). Allow a site from the prompt, from
-            the site chip under the chat box, or here.</p>
+          <p class="hint">In only-allowed mode the agent asks before any site not listed below, even in Auto.</p>
+          <details class="more">
+            <summary>Learn more</summary>
+            <p class="hint">In "only allowed sites" mode the agent won't read or act on a site that isn't
+              on the list below — it asks first (even in Auto mode). Allow a site from the prompt, from
+              the site chip under the chat box, or here.</p>
+          </details>
           <div id="perm-list" class="perm-list"></div>
           <p id="no-perms" class="empty-note">No site rules yet.</p>
         </section>
@@ -311,11 +331,23 @@
             <div class="field">
               <label>Checks</label>
               <label class="radio"><input type="checkbox" id="dec-f-action" /> Check risky actions before acting</label>
-              <p class="hint">Asks you first when a click/type/navigate looks like a purchase, payment, deletion or send, even in Auto. Sends your instruction for the current turn (not what gets typed into the page), so don't paste passwords or card numbers into the chat while this is on — an instruction that looks like it carries one is withheld. Unattended scheduled runs can't ask, so a confirmation there stops the task instead.</p>
+              <p class="hint">Sends this turn's instruction. Keep passwords and card numbers out of the chat.</p>
+              <details class="more">
+                <summary>Learn more</summary>
+                <p class="hint">Asks you first when a click/type/navigate looks like a purchase, payment, deletion or send, even in Auto. Sends your instruction for the current turn (not what gets typed into the page), so don't paste passwords or card numbers into the chat while this is on — an instruction that looks like it carries one is withheld. Unattended scheduled runs can't ask, so a confirmation there stops the task instead.</p>
+              </details>
               <label class="radio"><input type="checkbox" id="dec-f-injection" /> Classify page text for hidden instructions</label>
-              <p class="hint">Adds a smarter prompt-injection check on top of the built-in one. Sends up to 60,000 characters of the page just read — never on a sensitive site (banks, payment processors, crypto), where only the built-in check runs.</p>
+              <p class="hint">Sends up to 60,000 characters of the page, never on bank, payment or crypto sites.</p>
+              <details class="more">
+                <summary>Learn more</summary>
+                <p class="hint">Adds a smarter prompt-injection check on top of the built-in one. Sends up to 60,000 characters of the page just read — never on a sensitive site (banks, payment processors, crypto), where only the built-in check runs.</p>
+              </details>
               <label class="radio"><input type="checkbox" id="dec-f-change" /> Scheduled tasks: only notify when the result changed</label>
-              <p class="hint">Beta: it compares the model's own wording of the result, so a reworded but unchanged answer can still count as a change. A failed run, and every sixth quiet run, always notifies.</p>
+              <p class="hint">Compares the model's own wording, so a reworded answer can count as a change.</p>
+              <details class="more">
+                <summary>Learn more</summary>
+                <p class="hint">Beta: it compares the model's own wording of the result, so a reworded but unchanged answer can still count as a change. A failed run, and every sixth quiet run, always notifies.</p>
+              </details>
               <p class="hint" id="dec-features-hint" hidden>Pick a key source with a key in it to turn these on.</p>
             </div>
 
@@ -345,6 +377,7 @@
             <span class="pname"></span>
           </label>
           <span class="type-badge"></span>
+          <span class="chip accent active-tag">Active</span>
           <button class="link-btn delete-provider">Remove</button>
         </div>
         <div class="provider-body">

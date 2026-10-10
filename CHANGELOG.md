@@ -26,6 +26,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- **Visual polish, second pass.** The side panel opens on one quiet question
+  ("What should I do on this page?") just above the composer instead of a
+  landing-page hero, and Send is now an icon button inside the input with the
+  Plan / Ask / Auto control directly under it. Indigo is kept for Send and the
+  active state; elsewhere the panel, Settings and the on-page pill use warm
+  off-white paper (near-black in dark mode), a 12/13/14/16/20 px type scale and
+  4/8/12 px radii. Settings marks the active provider with an "Active" tag and
+  folds long hints under "Learn more". Focus rings are visible, panel targets
+  are at least 32 px, and nothing works differently.
 - **Models are tested the moment you pick them.** Choosing or typing a model id
   in Settings → Providers (or pasting the key for a provider whose model is
   already filled in) now runs the three-probe suitability test automatically,
