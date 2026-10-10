@@ -49,6 +49,44 @@ body {
   gap: 2px;
 }
 
+/* Which model answers: a second line of the top bar, opens Settings. */
+.topbar {
+  flex-wrap: wrap;
+}
+.model-line {
+  flex: 1 0 100%;
+  display: flex;
+  min-width: 0;
+  padding-top: 3px;
+}
+.model-chip {
+  max-width: 100%;
+  min-width: 0;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: border-color 120ms ease;
+}
+.model-chip:hover {
+  border-color: var(--os-accent);
+}
+.model-chip .mc-model {
+  font-family: var(--os-mono);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.model-chip .mc-sep {
+  flex: 0 0 auto;
+  opacity: 0.6;
+}
+.model-chip .mc-provider {
+  flex: 0 1 auto;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .icon-btn {
   display: inline-flex;
   align-items: center;
@@ -130,6 +168,7 @@ body {
 
 /* Workflows menu ------------------------------------------------------- */
 
+/* top is set from the top bar's bottom edge when the menu opens. */
 .wf-menu {
   position: absolute;
   top: 42px;
@@ -447,6 +486,25 @@ body {
   height: 13px;
   position: relative;
   top: 2px;
+}
+.note .note-action {
+  flex: 0 0 auto;
+  margin-left: auto;
+  align-self: center;
+  border: 1px solid var(--os-line-2);
+  background: var(--os-surface);
+  color: var(--os-ink);
+  border-radius: var(--os-r-sm);
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.note .note-action:hover {
+  border-color: var(--os-accent);
+  color: var(--os-accent-ink);
 }
 
 .alert {

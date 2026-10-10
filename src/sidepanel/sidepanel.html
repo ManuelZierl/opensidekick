@@ -75,6 +75,11 @@
           <svg class="ic"><use href="#ic-settings" /></svg>
         </button>
       </div>
+      <!-- Its own line: at 360px the brand and four buttons leave too little
+           room beside them for a model id to be readable. -->
+      <div id="model-line" class="model-line" hidden>
+        <button type="button" id="model-chip" class="chip model-chip"><span class="mc-model"></span><span class="mc-sep" aria-hidden="true">·</span><span class="mc-provider"></span></button>
+      </div>
     </header>
 
     <div id="wf-menu" class="wf-menu" hidden></div>

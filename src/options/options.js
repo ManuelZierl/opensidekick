@@ -1,6 +1,7 @@
 // Options page: manage providers, model selection, behavior, and site rules.
 
-import { PROVIDER_PRESETS, DEFAULT_CONFIG, DEFAULT_SETTINGS, MSG, STORAGE_KEY } from "../common/constants.js";
+import { PROVIDER_PRESETS, DEFAULT_CONFIG, DEFAULT_SETTINGS, MSG, STORAGE_KEY, MODELS_PAGE_URL } from "../common/constants.js";
+import { presetFor } from "../common/presets.js";
 import { loadConfig, saveConfig } from "../background/storage.js";
 import { listModels, testModel } from "../background/providers.js";
 import { connectServer, listTools } from "../background/mcp.js";
@@ -126,6 +127,7 @@ function addProviderFromPreset() {
   const preset = PROVIDER_PRESETS.find((p) => p.id === presetId);
   const provider = {
     id: crypto.randomUUID(),
+    presetId: preset.id,
     name: preset.name,
     type: preset.type,
     baseUrl: preset.baseUrl,
@@ -215,6 +217,7 @@ function renderProviders() {
     modelInput.setAttribute("list", listId);
     modelInput.value = provider.model || "";
     fillDatalist(datalist, provider.models);
+    renderSuggestions(node, provider);
     // Typing is debounced; committing a value (datalist pick, or a blur that
     // changed it) tests at once. Either way one pick is one run: the pending
     // timer is dropped, and a commit that repeats the configuration a run has
@@ -229,7 +232,10 @@ function renderProviders() {
 
     const fetchBtn = node.querySelector(".fetch-models");
     const fetchStatus = node.querySelector(".fetch-status");
-    fetchBtn.addEventListener("click", () => fetchModels(provider, fetchBtn, fetchStatus, datalist));
+    // A fresh list changes which suggestions it is known to contain.
+    fetchBtn.addEventListener("click", () =>
+      fetchModels(provider, fetchBtn, fetchStatus, datalist).then(() => renderSuggestions(node, provider)),
+    );
 
     const testBtn = node.querySelector(".test-model");
     testBtn.addEventListener("click", () => startModelTest(provider, node));
@@ -511,6 +517,38 @@ async function runModelTest(provider, modelInput, btn, statusEl, opts = {}) {
       btn.disabled = false;
       if (state.controller && state.controller.signal === signal) state.controller = null;
     }
+  }
+}
+
+// The preset's suggested models as one-click chips under the Model field. A
+// chip is a datalist pick by other means: it fires the same input + change pair
+// on the model field, so it persists and auto-tests through the same handlers
+// (and the same one-run dedupe) as picking from the list.
+function renderSuggestions(card, provider) {
+  const row = card.querySelector(".suggest-row");
+  const chips = row.querySelector(".suggest-chips");
+  const suggestions = presetFor(provider)?.suggestions || [];
+  chips.innerHTML = "";
+  row.hidden = suggestions.length === 0;
+  if (!suggestions.length) return;
+  row.querySelector(".suggest-link").href = MODELS_PAGE_URL;
+  // Only a list the provider actually returned can say a model is missing.
+  const listed = provider.models || [];
+  for (const s of suggestions) {
+    const offList = listed.length > 0 && !listed.includes(s.model);
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "chip suggest-chip" + (offList ? " off-list" : "");
+    chip.dataset.model = s.model;
+    chip.title = `${s.model} · ${s.note}${offList ? " — not in the models this provider returned" : ""}`;
+    chip.innerHTML = `<span>${escapeHtml(s.label)}</span><span class="kind-tag">${escapeHtml(s.kind)}</span>`;
+    chip.addEventListener("click", () => {
+      const input = card.querySelector(".model");
+      input.value = s.model;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    chips.appendChild(chip);
   }
 }
 

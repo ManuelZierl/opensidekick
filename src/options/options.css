@@ -367,6 +367,58 @@ body {
   margin: 4px 0 0;
   min-height: 14px;
 }
+
+/* Suggested models: chips that fill the Model field in one click. */
+.suggest-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 12.5px;
+}
+.suggest-label {
+  color: var(--os-muted);
+}
+.suggest-chips {
+  display: contents;
+}
+.suggest-chip {
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 120ms ease;
+}
+.suggest-chip:hover {
+  border-color: var(--os-accent);
+}
+.suggest-chip .kind-tag {
+  font-family: var(--os-mono);
+  font-size: 10px;
+  line-height: 1.4;
+  padding: 0 5px;
+  border-radius: var(--os-r-pill);
+  background: var(--os-surface);
+  color: var(--os-ink-soft);
+}
+/* Not among the models this provider returned: still clickable, but quieter. */
+.suggest-chip.off-list {
+  background: transparent;
+  color: var(--os-muted);
+  border: 1px dashed var(--os-line-2);
+}
+.suggest-chip.off-list:hover {
+  border-color: var(--os-accent);
+}
+.suggest-chip.off-list .kind-tag {
+  background: var(--os-surface-2);
+  color: var(--os-muted);
+}
+.suggest-link {
+  margin-left: auto;
+  font-size: 12px;
+  white-space: nowrap;
+}
 .grid2 {
   display: grid;
   grid-template-columns: 1fr 1fr;

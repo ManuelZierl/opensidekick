@@ -26,6 +26,11 @@ export const SESSION_PENDING_WF_KEY = "opensidekick.pendingWorkflow.v1";
 export const PROMPT_HISTORY_KEY = "opensidekick.promptHistory.v1";
 export const PROMPT_HISTORY_MAX = 50;
 
+// chrome.storage.session key for the last { providerId, model } the side panel
+// showed, so a panel reopened on a restored chat can tell that the model was
+// switched while it was closed.
+export const SESSION_MODEL_KEY = "opensidekick.lastModel.v1";
+
 // Provider "type" determines which wire protocol we speak.
 //   "openai"    -> POST {baseUrl}/chat/completions   (OpenRouter, OpenAI, Ollama,
 //                  Groq, Venice AI, Together, DeepSeek, LM Studio, Google's
@@ -34,8 +39,16 @@ export const PROMPT_HISTORY_MAX = 50;
 //   "anthropic" -> POST {baseUrl}/messages           (Anthropic Messages API)
 export const PROVIDER_TYPES = ["openai", "anthropic"];
 
+// The living list of suggested models. Linked from Settings, never fetched.
+export const MODELS_PAGE_URL = "https://opensidekick.app/models/";
+
 // One-click presets shown in the options page. `apiKey` and `defaultModel`
 // are filled in by the user. baseUrl has no trailing slash.
+//
+// `suggestions` (at most two per preset: { model, label, kind, note }, kind one
+// of closed / open / budget / light) are a static hint, dated 2026-10-10: they
+// ship with the extension and go stale between releases. MODELS_PAGE_URL is
+// the living list.
 export const PROVIDER_PRESETS = [
   {
     id: "openrouter",
@@ -45,6 +58,10 @@ export const PROVIDER_PRESETS = [
     defaultModel: "anthropic/claude-sonnet-4.5",
     keyUrl: "https://openrouter.ai/keys",
     hint: "One key, hundreds of models. Recommended default.",
+    suggestions: [
+      { model: "anthropic/claude-sonnet-5.5", label: "Claude Sonnet 5.5", kind: "closed", note: "balanced cost and capability" },
+      { model: "qwen/qwen3-vl-235b-a22b-instruct", label: "Qwen3-VL 235B", kind: "open", note: "cheap, strong on computer-use tests" },
+    ],
   },
   {
     id: "openai",
@@ -54,6 +71,10 @@ export const PROVIDER_PRESETS = [
     defaultModel: "gpt-4o",
     keyUrl: "https://platform.openai.com/api-keys",
     hint: "GPT models directly from OpenAI.",
+    suggestions: [
+      { model: "gpt-5.6-terra", label: "GPT-5.6 Terra", kind: "closed", note: "balanced; GPT-6 models need the Responses API for tools" },
+      { model: "gpt-5.6-luna", label: "GPT-5.6 Luna", kind: "budget", note: "cheapest" },
+    ],
   },
   {
     id: "anthropic",
@@ -63,6 +84,10 @@ export const PROVIDER_PRESETS = [
     defaultModel: "claude-sonnet-4-5",
     keyUrl: "https://console.anthropic.com/settings/keys",
     hint: "Claude models directly from Anthropic.",
+    suggestions: [
+      { model: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", kind: "closed", note: "balanced" },
+      { model: "claude-haiku-5-5", label: "Claude Haiku 5.5", kind: "budget", note: "cheapest" },
+    ],
   },
   {
     id: "google",
@@ -72,6 +97,10 @@ export const PROVIDER_PRESETS = [
     defaultModel: "gemini-2.0-flash",
     keyUrl: "https://aistudio.google.com/apikey",
     hint: "Gemini via Google's OpenAI-compatible endpoint.",
+    suggestions: [
+      { model: "gemini-3.8-flash", label: "Gemini 3.8 Flash", kind: "closed", note: "balanced" },
+      { model: "gemini-3.5-flash-lite", label: "Gemini 3.5 Flash Lite", kind: "budget", note: "cheapest" },
+    ],
   },
   {
     id: "groq",
@@ -81,6 +110,10 @@ export const PROVIDER_PRESETS = [
     defaultModel: "llama-3.3-70b-versatile",
     keyUrl: "https://console.groq.com/keys",
     hint: "Very fast open-weight models.",
+    suggestions: [
+      { model: "qwen/qwen3.8-27b", label: "Qwen 3.8 27B", kind: "open", note: "the only Groq model with tools + vision" },
+      { model: "openai/gpt-oss-20b", label: "GPT-OSS 20B", kind: "light", note: "fast and cheap, no vision" },
+    ],
   },
   {
     id: "venice",
@@ -90,6 +123,10 @@ export const PROVIDER_PRESETS = [
     defaultModel: "qwen-3-8-27b",
     keyUrl: "https://venice.ai/settings/api",
     hint: "Privacy-focused inference. Open-weight and frontier models with tool calling + vision.",
+    suggestions: [
+      { model: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", kind: "closed", note: "balanced cost and capability" },
+      { model: "qwen3-vl-235b-a22b", label: "Qwen3-VL 235B", kind: "open", note: "cheap, strong on computer-use tests" },
+    ],
   },
   {
     id: "ollama",
@@ -99,6 +136,10 @@ export const PROVIDER_PRESETS = [
     defaultModel: "qwen2.5:7b",
     keyUrl: "",
     hint: "Runs entirely on your machine. No API key needed. Set OLLAMA_ORIGINS to allow the extension.",
+    suggestions: [
+      { model: "qwen3-vl:30b", label: "Qwen3-VL 30B", kind: "open", note: "about 20 GB" },
+      { model: "qwen3-vl:8b", label: "Qwen3-VL 8B", kind: "light", note: "about 6 GB" },
+    ],
   },
   {
     id: "lmstudio",
@@ -108,6 +149,10 @@ export const PROVIDER_PRESETS = [
     defaultModel: "",
     keyUrl: "",
     hint: "Local server from LM Studio. No API key needed.",
+    suggestions: [
+      { model: "qwen/qwen3-vl-8b", label: "Qwen3-VL 8B", kind: "open", note: "tools + vision" },
+      { model: "mistralai/mistral-small-3.2", label: "Mistral Small 3.2", kind: "open", note: "tools + vision" },
+    ],
   },
   {
     id: "custom",
@@ -117,6 +162,7 @@ export const PROVIDER_PRESETS = [
     defaultModel: "",
     keyUrl: "",
     hint: "Any server exposing /chat/completions.",
+    suggestions: [],
   },
 ];
 

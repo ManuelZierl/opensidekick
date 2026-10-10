@@ -150,6 +150,15 @@ add a provider:
 Paste your API key, click **Fetch models** (or type a model id), select the
 provider, and you're ready.
 
+Under the Model field, each preset shows up to two **Suggested** models as
+one-click chips that fill the field (muted when the provider's fetched list
+doesn't include them). A chip also runs the model test when the provider has
+an API key or a local (loopback) base URL; otherwise it shows a hint to add
+your key. The suggestions are as of October 2026; the live list is at
+[opensidekick.app/models](https://opensidekick.app/models/). The side panel
+shows the active model and provider as a chip under the top bar; click it to
+open Settings.
+
 > **Tool use / agentic actions require a model that supports function calling.**
 > Most hosted models do. For local models via Ollama, pick a tool-capable model
 > (e.g. `qwen2.5`, `llama3.1`). Models without tool support still work for chat

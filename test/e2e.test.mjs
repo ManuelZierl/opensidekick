@@ -15,7 +15,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
-import { STORAGE_KEY, MSG, SESSION_PENDING_WF_KEY } from "../src/common/constants.js";
+import { STORAGE_KEY, MSG, SESSION_PENDING_WF_KEY, MODELS_PAGE_URL } from "../src/common/constants.js";
 
 const EXT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const IMG_PNG = fs.readFileSync(path.join(EXT_DIR, "icons/icon16.png")); // a real, tiny PNG
@@ -24,6 +24,7 @@ let sawImage = false; // set by the mock when a request carries an image part
 let lastImageUrl = ""; // the most recent image data URI the mock received
 let probeRequests = []; // { model, kind } per testModel probe the mock answered
 let probeDelayMs = 0; // holds the tools probe open, so a run can be observed/cancelled
+let lastSystem = ""; // the system prompt of the most recent agent (non-probe) request
 const HOSTED_ALIAS = "hosted.test"; // mapped onto the mock by --host-resolver-rules
 const check = (cond, msg) => {
   console.log((cond ? "ok  : " : "FAIL: ") + msg);
@@ -74,6 +75,18 @@ function decide(messages) {
   const parsed = toolMsgs.map((m) => { try { return JSON.parse(m.content); } catch { return {}; } });
   let elements = [];
   for (const p of parsed) if (Array.isArray(p.elements)) elements = p.elements;
+
+  // Model identity: the agent appends which model it is to the system prompt.
+  // Keyed on the LATEST user turn, since this is asked mid-conversation.
+  const lastUser = ([...messages].reverse().find((m) => m.role === "user" && typeof m.content === "string")?.content || "").toLowerCase();
+  if (/what model are you/.test(lastUser)) {
+    const system = messages.find((m) => m.role === "system")?.content || "";
+    return { kind: "text", text: system.includes('running as the model "mock-model"') ? "I am mock-model via Mock." : "I don't know which model I am." };
+  }
+
+  // A reply that streams its first words, then stalls, so the side panel can
+  // be poked mid-run (the model-switch note must wait for the run to end).
+  if (/hold your reply/.test(lastUser)) return { kind: "text", text: "Holding on... done holding.", stallMs: 2500 };
 
   // Context retention: only answerable if the FIRST turn is still in the
   // conversation when the follow-up arrives (tests survival of a worker restart).
@@ -193,6 +206,23 @@ function sseText(res, text) {
   res.end();
 }
 
+// sseText, but the second half of the text arrives stallMs after the first.
+function sseTextStalled(res, text, stallMs) {
+  res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", "access-control-allow-origin": "*" });
+  res.on("error", () => {});
+  const send = (o) => res.write("data: " + JSON.stringify(o) + "\n\n");
+  const mid = Math.ceil(text.length / 2);
+  send({ choices: [{ delta: { role: "assistant" } }] });
+  send({ choices: [{ delta: { content: text.slice(0, mid) } }] });
+  setTimeout(() => {
+    if (res.destroyed || res.writableEnded) return;
+    send({ choices: [{ delta: { content: text.slice(mid) } }] });
+    send({ choices: [{ finish_reason: "stop" }] });
+    res.write("data: [DONE]\n\n");
+    res.end();
+  }, stallMs);
+}
+
 function sseToolCall(res, id, name, argsObj) {
   res.writeHead(200, {
     "content-type": "text/event-stream",
@@ -304,6 +334,7 @@ function startServer() {
           if (probe === "tools" && probeDelayMs) return setTimeout(reply, probeDelayMs);
           return reply();
         }
+        lastSystem = messages.find((m) => m.role === "system")?.content || "";
         // The plan-approval "planning" call is the only request sent with no tools.
         if (!bodyObj.tools || bodyObj.tools.length === 0) {
           return sseText(
@@ -317,7 +348,8 @@ function startServer() {
           );
         }
         const d = decide(messages);
-        if (d.kind === "text") sseText(res, d.text);
+        if (d.kind === "text" && d.stallMs) sseTextStalled(res, d.text, d.stallMs);
+        else if (d.kind === "text") sseText(res, d.text);
         else sseToolCall(res, "call_" + Date.now(), d.name, d.args);
       });
       return;
@@ -700,6 +732,151 @@ async function main() {
     } finally {
       probeDelayMs = 0;
       await aPage.close().catch(() => {});
+    }
+
+    // --- Options page: suggested models. Same pattern as the blocks above — a
+    // FRESH page, extra provider cards, removed again afterwards. ---
+    const OR_CLOSED = "anthropic/claude-sonnet-5.5";
+    const OR_OPEN = "qwen/qwen3-vl-235b-a22b-instruct";
+    const sPage = await context.newPage();
+    try {
+      await sPage.goto(`chrome-extension://${extId}/src/options/options.html`, { waitUntil: "load" });
+      await sPage.waitForSelector('#preset-select option[value="openrouter"]', { state: "attached", timeout: 5000 });
+      await sPage.selectOption("#preset-select", "openrouter");
+      await sPage.click("#add-provider");
+      await sPage.waitForFunction(() => document.querySelectorAll(".provider").length === 2, null, { timeout: 5000 });
+      const sId = await sPage.evaluate(() => document.querySelectorAll(".provider")[1].dataset.id);
+      const sSel = `.provider[data-id="${sId}"]`;
+      const sPresetId = await sPage
+        .waitForFunction(
+          ([key, id]) => chrome.storage.local.get(key).then((r) => (r[key]?.providers || []).find((p) => p.id === id)?.presetId || false),
+          [STORAGE_KEY, sId],
+          { timeout: 5000 },
+        )
+        .then((h) => h.jsonValue())
+        .catch(() => null);
+      check(sPresetId === "openrouter", `suggest: the provider added from the OpenRouter preset records presetId "openrouter" (got ${JSON.stringify(sPresetId)})`);
+      const setField = (field, value, events) =>
+        sPage.evaluate(
+          ([s, f, v, evs]) => {
+            const el = document.querySelector(s).querySelector(f);
+            el.value = v;
+            for (const e of evs) el.dispatchEvent(new Event(e, { bubbles: true }));
+          },
+          [sSel, field, value, events],
+        );
+      const awaitStatus = (re, timeout) =>
+        sPage
+          .waitForFunction(
+            ([s, src]) => new RegExp(src).test(document.querySelector(s + " .test-status")?.textContent || ""),
+            [sSel, re.source],
+            { timeout },
+          )
+          .then(() => true)
+          .catch(() => false);
+
+      // (a) Two chips with the preset's ids, and the link to the living list.
+      const row = await sPage.evaluate((s) => {
+        const r = document.querySelector(s + " .suggest-row");
+        return {
+          hidden: r.hidden,
+          models: [...r.querySelectorAll(".suggest-chip")].map((c) => c.dataset.model),
+          labels: [...r.querySelectorAll(".suggest-chip")].map((c) => c.textContent),
+          href: r.querySelector(".suggest-link").href,
+          linkText: r.querySelector(".suggest-link").textContent,
+          target: r.querySelector(".suggest-link").target,
+        };
+      }, sSel);
+      check(
+        !row.hidden && JSON.stringify(row.models) === JSON.stringify([OR_CLOSED, OR_OPEN]),
+        `suggest: the OpenRouter card shows two chips with the suggested ids (got ${JSON.stringify(row.models)})`,
+      );
+      check(/Claude Sonnet 5\.5/.test(row.labels[0] || "") && /closed/.test(row.labels[0] || "") && /open/.test(row.labels[1] || ""),
+        `suggest: chips carry the label and a kind tag (got ${JSON.stringify(row.labels)})`);
+      check(
+        row.href === MODELS_PAGE_URL && /This week's picks/.test(row.linkText) && row.target === "_blank",
+        `suggest: "This week's picks" links to the models page in a new tab (got ${row.href}, "${row.linkText}", ${row.target})`,
+      );
+
+      // (b) A chip is a datalist pick: fills the field, persists, ONE auto-test.
+      // Pointed at the loopback mock so the probes run without a key; the
+      // preset's default model is probed by that, so wait it out first.
+      await setField(".base-url", `${base}/v1`, ["change"]);
+      await awaitStatus(/This model can drive OpenSidekick/, 20000);
+      probeRequests = [];
+      await sPage.click(`${sSel} .suggest-chip[data-model="${OR_OPEN}"]`);
+      const chipDone = await awaitStatus(new RegExp("Tested " + OR_OPEN.replace(/[.]/g, "\\.") + "[\\s\\S]*This model can drive OpenSidekick"), 20000);
+      await sPage.waitForTimeout(1000); // a second run would have landed by now
+      const chipModel = await sPage.$eval(`${sSel} .model`, (el) => el.value);
+      check(chipModel === OR_OPEN, `suggest: clicking the open-model chip fills the Model field (got "${chipModel}")`);
+      const storedModel = await sPage.evaluate(
+        ([key, id]) => chrome.storage.local.get(key).then((r) => (r[key]?.providers || []).find((p) => p.id === id)?.model),
+        [STORAGE_KEY, sId],
+      );
+      check(storedModel === OR_OPEN, `suggest: the chip's model is persisted (got "${storedModel}")`);
+      const chipProbes = probeRequests.map((p) => `${p.model}:${p.kind}`);
+      check(
+        chipDone && probeRequests.length === 3 && probeRequests.every((p) => p.model === OR_OPEN),
+        `suggest: a chip click starts exactly one auto-test run (got ${chipProbes.join(",") || "none"})`,
+      );
+
+      // (c) A fetched model list that lacks a suggestion marks that chip.
+      await sPage.evaluate(
+        async ([key, id, list]) => {
+          const cfg = (await chrome.storage.local.get(key))[key];
+          cfg.providers.find((p) => p.id === id).models = list;
+          await chrome.storage.local.set({ [key]: cfg });
+        },
+        [STORAGE_KEY, sId, [OR_CLOSED, "mock-model"]],
+      );
+      const marked = await sPage
+        .waitForFunction(([s, m]) => document.querySelector(`${s} .suggest-chip[data-model="${m}"]`)?.classList.contains("off-list"), [sSel, OR_OPEN], { timeout: 5000 })
+        .then(() => true)
+        .catch(() => false);
+      const chipState = await sPage.evaluate(
+        ([s, a, b]) => {
+          const get = (m) => document.querySelector(`${s} .suggest-chip[data-model="${m}"]`);
+          return { closedOff: get(a).classList.contains("off-list"), openTitle: get(b).title };
+        },
+        [sSel, OR_CLOSED, OR_OPEN],
+      );
+      check(marked && !chipState.closedOff, `suggest: only the chip missing from the fetched list is muted (closed muted: ${chipState.closedOff})`);
+      check(
+        chipState.openTitle === `${OR_OPEN} · cheap, strong on computer-use tests — not in the models this provider returned`,
+        `suggest: the muted chip's title says why (got "${chipState.openTitle}")`,
+      );
+
+      await sPage.click(`${sSel} .delete-provider`);
+      await sPage.waitForFunction(() => document.querySelectorAll(".provider").length === 1, null, { timeout: 5000 });
+
+      // (d) Custom has nothing to suggest: no row at all.
+      await sPage.selectOption("#preset-select", "custom");
+      await sPage.click("#add-provider");
+      await sPage.waitForFunction(() => document.querySelectorAll(".provider").length === 2, null, { timeout: 5000 });
+      const custom = await sPage.evaluate(() => {
+        const card = document.querySelectorAll(".provider")[1];
+        const r = card.querySelector(".suggest-row");
+        return { id: card.dataset.id, hidden: r.hidden, chips: r.querySelectorAll(".suggest-chip").length };
+      });
+      check(custom.hidden && custom.chips === 0, `suggest: the Custom preset renders no suggestions row (hidden ${custom.hidden}, ${custom.chips} chips)`);
+      await sPage.click(`.provider[data-id="${custom.id}"] .delete-provider`);
+      await sPage.waitForFunction(
+        (key) => chrome.storage.local.get(key).then((r) => (r[key]?.providers || []).length === 1),
+        STORAGE_KEY,
+        { timeout: 5000 },
+      );
+      const sLeft = await sPage.evaluate(
+        (key) => chrome.storage.local.get(key).then((r) => ({ ids: (r[key]?.providers || []).map((p) => p.id), active: r[key]?.activeProviderId, model: r[key]?.activeModel })),
+        STORAGE_KEY,
+      );
+      check(
+        JSON.stringify(sLeft.ids) === '["mock"]' && sLeft.active === "mock" && sLeft.model === "mock-model",
+        `suggest: cleanup leaves only the active mock provider (got ${JSON.stringify(sLeft)})`,
+      );
+    } catch (e) {
+      check(false, `suggest: options-page flow threw: ${e.message}`);
+    } finally {
+      await sPage.close().catch(() => {});
     }
 
     // Collect agent events, and auto-respond to permission prompts (recording
@@ -1165,6 +1342,168 @@ async function main() {
     check(/remembered: plum/.test(lastAnswer), `panel-context: composer follow-up after reopen keeps the context (got "${lastAnswer.slice(0, 40)}")`);
     await panel2.close();
 
+    // --- Model chip, switch notice, and model identity (side panel) ---
+    // The provider gets a key here so the system-prompt check below can prove
+    // the key never reaches the prompt.
+    const MOCK_KEY = "sk-mock-identity-secret-0123456789";
+    const keyedConfig = { ...config, providers: [{ ...config.providers[0], apiKey: MOCK_KEY }] };
+    await optPage.evaluate(([key, cfg]) => chrome.storage.local.set({ [key]: cfg }), [STORAGE_KEY, keyedConfig]);
+    const setActiveModel = (model) =>
+      optPage.evaluate(
+        async ([key, m]) => {
+          const cfg = (await chrome.storage.local.get(key))[key];
+          cfg.activeModel = m;
+          await chrome.storage.local.set({ [key]: cfg });
+        },
+        [STORAGE_KEY, model],
+      );
+    const notesWith = (pg, text) => pg.$$eval(".note", (els, t) => els.filter((e) => e.textContent.includes(t)).length, text).catch(() => 0);
+    const mPanel = await context.newPage();
+    try {
+      await mPanel.goto(`chrome-extension://${extId}/src/sidepanel/sidepanel.html`, { waitUntil: "load" });
+      // (e) The chip names the model and the provider.
+      await mPanel.waitForSelector("#model-line:not([hidden])", { timeout: 5000 }).catch(() => {});
+      const chip = await mPanel.$eval("#model-chip", (el) => ({ text: el.innerText.replace(/\s+/g, " ").trim(), title: el.title })).catch(() => ({ text: "", title: "" }));
+      check(/mock-model/.test(chip.text) && /Mock/.test(chip.text), `model-chip: the top bar shows the model and provider (got "${chip.text}")`);
+      check(/mock-model · Mock/.test(chip.title), `model-chip: the full text is in the title (got "${chip.title}")`);
+
+      // (f) Switching the model mid-chat says so once, with a New chat button.
+      await mPanel.click("#new-chat");
+      await mPanel.waitForTimeout(300);
+      const m1 = await panelSend(mPanel, "The magic word is plum. Acknowledge.", 0);
+      check(m1 > 0, "model-switch: a first exchange completed");
+      await setActiveModel("mock-model-2");
+      const noted = await mPanel
+        .waitForFunction(() => [...document.querySelectorAll(".note")].some((n) => n.textContent.includes("mock-model-2")), null, { timeout: 5000 })
+        .then(() => true)
+        .catch(() => false);
+      const note = await mPanel
+        .evaluate(() => {
+          const n = [...document.querySelectorAll(".note")].find((x) => x.textContent.includes("mock-model-2"));
+          return n ? { text: n.querySelector("span").textContent, btn: n.querySelector("button.note-action")?.textContent || "" } : null;
+        })
+        .catch(() => null);
+      check(
+        noted && note && note.text === "Now using mock-model-2 via Mock. Replies continue in this chat. Start a new chat to reset context.",
+        `model-switch: changing the model mid-chat shows the switch note (got "${note && note.text}")`,
+      );
+      check(!!note && note.btn === "New chat", `model-switch: the note carries a New chat button (got "${note && note.btn}")`);
+      const chip2 = await mPanel.$eval("#model-chip", (el) => el.innerText.replace(/\s+/g, " ").trim()).catch(() => "");
+      check(/mock-model-2/.test(chip2), `model-switch: the chip follows the switch (got "${chip2}")`);
+      // Unrelated config writes (a setting, a site permission) are not a second switch.
+      await optPage.evaluate(async (key) => {
+        const cfg = (await chrome.storage.local.get(key))[key];
+        cfg.settings.maxSteps = 14;
+        await chrome.storage.local.set({ [key]: cfg });
+      }, STORAGE_KEY);
+      await optPage.evaluate(async (key) => {
+        const cfg = (await chrome.storage.local.get(key))[key];
+        cfg.sitePermissions = { ...(cfg.sitePermissions || {}), "https://switch-note.example": "allow" };
+        await chrome.storage.local.set({ [key]: cfg });
+      }, STORAGE_KEY);
+      await mPanel.waitForTimeout(400);
+      check((await notesWith(mPanel, "Now using")) === 1, `model-switch: the note shows once per switch (got ${await notesWith(mPanel, "Now using")})`);
+
+      // A switch that passes through an unconfigured state (no model) is still
+      // one switch, noted once.
+      await setActiveModel("");
+      await mPanel.waitForTimeout(400);
+      await setActiveModel("mock-model-3");
+      await mPanel
+        .waitForFunction(() => [...document.querySelectorAll(".note")].some((n) => n.textContent.includes("mock-model-3")), null, { timeout: 5000 })
+        .catch(() => {});
+      await mPanel.waitForTimeout(300);
+      check(
+        (await notesWith(mPanel, "Now using mock-model-3")) === 1 && (await notesWith(mPanel, "Now using")) === 2,
+        `model-switch: model → none → new model shows exactly one note (got ${await notesWith(mPanel, "Now using mock-model-3")} for the new model, ${await notesWith(mPanel, "Now using")} in all)`,
+      );
+
+      // A switch made while a reply is still streaming is held until the run ends.
+      const beforeHold = await mPanel.$$eval(".msg.assistant", (n) => n.length).catch(() => 0);
+      await mPanel.fill("#input", "Hold your reply for a moment.");
+      await testPage.bringToFront();
+      await mPanel.click("#send-btn");
+      await mPanel
+        .waitForFunction(
+          (n) => {
+            const a = document.querySelectorAll(".msg.assistant");
+            return a.length > n && /Holding/.test(a[a.length - 1].textContent);
+          },
+          beforeHold,
+          { timeout: 5000 },
+        )
+        .catch(() => {});
+      await setActiveModel("mock-model-4");
+      await mPanel.waitForTimeout(600);
+      const midRun = await mPanel.evaluate(() => ({
+        running: !document.getElementById("stop-btn").hidden,
+        notes: [...document.querySelectorAll(".note")].filter((n) => n.textContent.includes("mock-model-4")).length,
+      }));
+      check(midRun.running && midRun.notes === 0, `model-switch: no note while the old model's reply is still streaming (${JSON.stringify(midRun)})`);
+      const held = await panelIdle(mPanel, beforeHold);
+      await mPanel.waitForTimeout(300);
+      const afterRun = await mPanel.evaluate(() => {
+        const notes = [...document.querySelectorAll(".note")].filter((n) => n.textContent.includes("Now using mock-model-4 via Mock."));
+        const answers = document.querySelectorAll(".msg.assistant");
+        const last = answers[answers.length - 1];
+        return {
+          notes: notes.length,
+          afterReply: !!(notes[0] && last && last.compareDocumentPosition(notes[0]) & Node.DOCUMENT_POSITION_FOLLOWING),
+          reply: last ? last.textContent : "",
+        };
+      });
+      check(
+        held > 0 && afterRun.notes === 1 && afterRun.afterReply && /done holding/.test(afterRun.reply),
+        `model-switch: the held note shows once, after the finished reply, naming the new model (${JSON.stringify(afterRun)})`,
+      );
+      await mPanel.click(".note button.note-action");
+      await mPanel.waitForTimeout(300);
+      const afterNew = await mPanel.evaluate(() => ({
+        msgs: document.querySelectorAll(".msg").length,
+        notes: document.querySelectorAll(".note").length,
+        empty: !document.getElementById("empty-state").hidden,
+      }));
+      check(afterNew.msgs === 0 && afterNew.notes === 0 && afterNew.empty, `model-switch: the note's New chat clears the chat (got ${JSON.stringify(afterNew)})`);
+
+      // A switch made while the panel is closed is noted when it reopens on the
+      // restored chat.
+      const m2 = await panelSend(mPanel, "The magic word is plum. Acknowledge.", 0);
+      check(m2 > 0, "model-switch: an exchange on the new model completed");
+      await mPanel.close();
+      await setActiveModel("mock-model");
+      const rPanel = await context.newPage();
+      try {
+        await rPanel.goto(`chrome-extension://${extId}/src/sidepanel/sidepanel.html`, { waitUntil: "load" });
+        const reNoted = await rPanel
+          .waitForFunction(() => [...document.querySelectorAll(".note")].some((n) => n.textContent.includes("Now using mock-model via Mock.")), null, { timeout: 5000 })
+          .then(() => true)
+          .catch(() => false);
+        check(reNoted && (await notesWith(rPanel, "Now using")) === 1, `model-switch: a reopened panel notes a switch made while it was closed (${await notesWith(rPanel, "Now using")} note(s))`);
+
+        // (g) The agent knows which model it is — and the prompt that tells it
+        // carries neither the key nor the base URL.
+        const before = await rPanel.$$eval(".msg.assistant", (n) => n.length).catch(() => 0);
+        const m3 = await panelSend(rPanel, "What model are you?", before);
+        const reply = await rPanel.$$eval(".msg.assistant", (els) => els[els.length - 1].textContent).catch(() => "");
+        check(m3 > 0 && reply.includes("I am mock-model via Mock."), `identity: "what model are you" is answered with the configured model (got "${reply}")`);
+        check(
+          lastSystem.includes('You are running as the model "mock-model" through the provider "Mock".'),
+          "identity: the system prompt names the model and the provider",
+        );
+        check(
+          !lastSystem.includes(MOCK_KEY) && !lastSystem.includes(`${base}/v1`) && !lastSystem.includes(new URL(base).host),
+          "identity: the system prompt carries neither the API key nor the base URL",
+        );
+      } finally {
+        await rPanel.close().catch(() => {});
+      }
+    } catch (e) {
+      check(false, `model-chip: side-panel flow threw: ${e.message}`);
+    } finally {
+      await mPanel.close().catch(() => {});
+      await optPage.evaluate(([key, cfg]) => chrome.storage.local.set({ [key]: cfg }), [STORAGE_KEY, config]);
+    }
+
     // --- Prompt history: ↑/↓ recall, edit, run ---
     await optPage.evaluate(([key, hist]) => chrome.storage.local.set({ [key]: hist }), [
       "opensidekick.promptHistory.v1",
@@ -1280,6 +1619,8 @@ async function main() {
     const noticeVisible = await gatePanel.$eval("#not-configured", (el) => !el.hidden).catch(() => false);
     const placeholder = await gatePanel.$eval("#input", (el) => el.placeholder).catch(() => "");
     check(noticeVisible, "gate: unconfigured side panel shows the 'connect a model' notice");
+    const chipHidden = await gatePanel.$eval("#model-line", (el) => el.hidden).catch(() => false);
+    check(chipHidden, "gate: the model chip is hidden while no model is configured");
     check(/settings/i.test(placeholder), `gate: composer prompts to add a model (placeholder "${placeholder}")`);
 
     // (3) The composer's approval selector sets autonomy without opening Settings.

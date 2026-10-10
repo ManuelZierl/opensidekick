@@ -48,8 +48,22 @@ const LOOP_EXEMPT = new Set([
   "read_network",
 ]);
 
+// Tells the model which model it is: asked "which AI are you?", models tend to
+// name whatever their training data suggests, which is often wrong behind a
+// router. Only the model id and the provider's display name — never a key or
+// a base URL. The plan call gets a neutral sentence instead, prepended so its
+// reply-with-only-JSON instructions stay last and uncontradicted.
+function identityNotes(config, provider) {
+  const model = config.activeModel;
+  return {
+    main: `\n\nYou are running as the model "${model}" through the provider "${provider.name}". If the user asks which model or AI you are, say exactly that.`,
+    plan: `You are the model "${model}" via the provider "${provider.name}".\n\n`,
+  };
+}
+
 export async function runAgent(deps) {
   const { conversation, config, provider, initialTabId, signal, emit, requestPermission, requestPlanApproval, saveSitePermission } = deps;
+  const identity = identityNotes(config, provider);
 
   const maxSteps = Math.max(1, config.settings.maxSteps || 25);
   // Offer optional tools only when the user has enabled them: vision (needs a
@@ -130,7 +144,7 @@ export async function runAgent(deps) {
     emit({ kind: "planning" });
     let plan = null;
     try {
-      plan = await makePlan(provider, config, conversation, signal);
+      plan = await makePlan(provider, config, conversation, signal, identity.plan);
     } catch {
       plan = null; // if planning fails, fall through and run normally
     }
@@ -172,7 +186,7 @@ export async function runAgent(deps) {
     try {
       result = await callModel(provider, {
         model: config.activeModel,
-        system: SYSTEM_PROMPT,
+        system: SYSTEM_PROMPT + identity.main,
         messages: conversation,
         tools,
         maxTokens: config.settings.maxTokens,
@@ -539,10 +553,10 @@ const PLAN_SYSTEM = `The user has asked you to do something in their browser. Be
 {"summary": "one sentence describing what you'll do", "steps": ["3 to 7 short high-level steps"], "domains": ["website hostnames you expect to use, e.g. example.com"], "needs_actions": true or false}
 Set needs_actions to false only if you can answer the user directly without acting on any page.`;
 
-async function makePlan(provider, config, conversation, signal) {
+async function makePlan(provider, config, conversation, signal, identity = "") {
   const res = await callModel(provider, {
     model: config.activeModel,
-    system: PLAN_SYSTEM,
+    system: identity + PLAN_SYSTEM,
     messages: conversation,
     tools: [],
     maxTokens: 700,

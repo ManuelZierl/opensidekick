@@ -5,6 +5,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **Suggested models per provider.** Each preset in Settings → Providers shows
+  up to two suggested models as chips under the Model field (dated
+  2026-10-10, tagged closed / open / budget / light). A click fills the field,
+  saves it, and runs the model test once. A chip is muted when the provider's
+  fetched model list doesn't include it. A "This week's picks ↗" link points to
+  the live list at https://opensidekick.app/models/ (only linked, never
+  fetched). Providers added from a preset now record its `presetId`; older ones
+  are matched to their preset by the exact host of their base URL.
+- **Model chip and switch notice in the side panel.** A chip under the top bar
+  shows the active model and provider and opens Settings when clicked.
+  Switching the model in the middle of a chat adds a one-time note ("Now using
+  … via …. Replies continue in this chat.") with a **New chat** button. A
+  reopened panel shows the same note if the model changed while it was closed.
+- **The agent knows which model it is.** The system prompt now names the
+  configured model id and provider (never the key or base URL), so "which
+  model are you?" gets the right answer.
+
 ### Changed
 
 - **Models are tested the moment you pick them.** Choosing or typing a model id

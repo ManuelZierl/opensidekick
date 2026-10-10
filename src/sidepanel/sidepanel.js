@@ -1,7 +1,7 @@
 // Side panel UI controller. Talks to the service worker via runtime messages
 // and renders the streaming agent transcript.
 
-import { MSG, STORAGE_KEY, SESSION_PENDING_WF_KEY, PROMPT_HISTORY_KEY, PROMPT_HISTORY_MAX } from "../common/constants.js";
+import { MSG, STORAGE_KEY, SESSION_PENDING_WF_KEY, SESSION_MODEL_KEY, PROMPT_HISTORY_KEY, PROMPT_HISTORY_MAX } from "../common/constants.js";
 import { matchPrompts, isSlashQuery } from "../common/prompts.js";
 
 const els = {
@@ -25,6 +25,8 @@ const els = {
   autonomy: document.getElementById("autonomy"),
   siteMenu: document.getElementById("site-menu"),
   jumpLatest: document.getElementById("jump-latest"),
+  modelLine: document.getElementById("model-line"),
+  modelChip: document.getElementById("model-chip"),
 };
 
 let savedPrompts = [];
@@ -110,6 +112,7 @@ async function init() {
   els.stop.addEventListener("click", () => send({ type: MSG.STOP_TASK }));
   els.newChat.addEventListener("click", newChat);
   els.settings.addEventListener("click", () => chrome.runtime.openOptionsPage());
+  els.modelChip.addEventListener("click", () => chrome.runtime.openOptionsPage());
   if (els.setupLink) els.setupLink.addEventListener("click", (e) => { e.preventDefault(); chrome.runtime.openOptionsPage(); });
   document.querySelectorAll(".examples li").forEach((li) =>
     li.addEventListener("click", () => {
@@ -174,6 +177,77 @@ async function refreshConfigured() {
   const provider = (cfg.providers || []).find((p) => p.id === cfg.activeProviderId);
   updateConfiguredUI(!!(provider && cfg.activeModel));
   setAutonomyUI((cfg.settings && cfg.settings.autonomy) || "ask");
+  const pair = provider && cfg.activeModel ? { providerId: provider.id, model: cfg.activeModel } : null;
+  renderModelChip(pair && pair.model, provider && provider.name);
+  // Serialised: the first call reads the stored pair, and a storage change
+  // landing while it does must not compare against a half-initialised state.
+  modelTrack = modelTrack.then(() => trackModel(pair, provider && provider.name)).catch(() => {});
+}
+
+function renderModelChip(model, providerName) {
+  els.modelLine.hidden = !model;
+  if (!model) return;
+  els.modelChip.querySelector(".mc-model").textContent = model;
+  els.modelChip.querySelector(".mc-provider").textContent = providerName || "";
+  els.modelChip.title = `${model} · ${providerName || ""} (open Settings to change)`;
+}
+
+// -------------------------------------------------------------------------
+// Model switches. The conversation lives on when the model changes, so the
+// user is told which model answers from here on — once per switch, and only
+// when there is a chat for it to continue. The pair the panel last showed is
+// kept in storage.session, so a panel reopened on a restored chat notices a
+// switch made in Settings while it was closed.
+// -------------------------------------------------------------------------
+let modelTrack = Promise.resolve();
+let seenModel; // JSON [providerId, model] last shown; undefined before the first look
+// A switch made mid-run: its note waits for the run to end, so it doesn't land
+// under the old model's still-streaming reply. { from, model, providerName }
+let heldSwitch = null;
+
+const modelKey = (pair) => (pair ? JSON.stringify([pair.providerId, pair.model]) : "");
+
+async function trackModel(pair, providerName) {
+  // A momentarily unconfigured state (e.g. mid-edit in Settings) keeps the
+  // remembered pair, so a switch that passes through it still shows one note.
+  if (!pair) return;
+  const key = modelKey(pair);
+  let prev = seenModel;
+  if (prev === undefined) {
+    try {
+      prev = modelKey((await chrome.storage.session.get(SESSION_MODEL_KEY))[SESSION_MODEL_KEY]);
+    } catch {
+      prev = "";
+    }
+    seenModel = null; // forces the write below even when nothing changed
+  }
+  if (key === seenModel) return;
+  seenModel = key;
+  try {
+    await chrome.storage.session.set({ [SESSION_MODEL_KEY]: pair });
+  } catch {
+    /* ignore */
+  }
+  if (!prev || prev === key || !els.messages.querySelector(".msg")) return;
+  if (running) {
+    const from = heldSwitch ? heldSwitch.from : prev;
+    heldSwitch = from === key ? null : { from, model: pair.model, providerName };
+  } else {
+    addSwitchNote(pair.model, providerName);
+  }
+}
+
+function addSwitchNote(model, providerName) {
+  addNote(`Now using ${model} via ${providerName}. Replies continue in this chat. Start a new chat to reset context.`, "dot", {
+    label: "New chat",
+    onClick: newChat,
+  });
+}
+
+function flushHeldSwitch() {
+  const held = heldSwitch;
+  heldSwitch = null;
+  if (held && els.messages.querySelector(".msg")) addSwitchNote(held.model, held.providerName);
 }
 
 // Reflect the active approval mode in the segmented control.
@@ -385,6 +459,7 @@ function handleEvent(ev) {
       setRunning(false);
       break;
     case "done":
+      flushHeldSwitch();
       break;
     case "idle":
       setRunning(false);
@@ -398,7 +473,10 @@ function setRunning(v) {
   els.stop.hidden = !v;
   els.send.hidden = v;
   if (v) setStatus("Working…");
-  else clearStatus();
+  else {
+    clearStatus();
+    flushHeldSwitch();
+  }
 }
 
 // -------------------------------------------------------------------------
@@ -571,11 +649,19 @@ function addWarning(text) {
   scroll();
 }
 
-function addNote(text, icon) {
+function addNote(text, icon, action) {
   sealLog();
   const el = document.createElement("div");
   el.className = "note";
   el.innerHTML = `${icon ? ic(icon) : ""}<span>${escapeHtml(text)}</span>`;
+  if (action) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "note-action";
+    btn.textContent = action.label;
+    btn.addEventListener("click", action.onClick);
+    el.appendChild(btn);
+  }
   els.messages.appendChild(el);
   scroll();
 }
@@ -983,6 +1069,8 @@ function renderWorkflowsMenu(wfs) {
       el.addEventListener("click", () => replayWorkflow(wfs[Number(el.dataset.i)])),
     );
   }
+  // Hangs just below the top bar, whose height changes with the model line.
+  els.wfMenu.style.top = `${Math.round(document.querySelector(".topbar").getBoundingClientRect().bottom) + 4}px`;
   els.wfMenu.hidden = false;
 }
 
