@@ -22,6 +22,9 @@ const IMG_PNG = fs.readFileSync(path.join(EXT_DIR, "icons/icon16.png")); // a re
 let failures = 0;
 let sawImage = false; // set by the mock when a request carries an image part
 let lastImageUrl = ""; // the most recent image data URI the mock received
+let probeRequests = []; // { model, kind } per testModel probe the mock answered
+let probeDelayMs = 0; // holds the tools probe open, so a run can be observed/cancelled
+const HOSTED_ALIAS = "hosted.test"; // mapped onto the mock by --host-resolver-rules
 const check = (cond, msg) => {
   console.log((cond ? "ok  : " : "FAIL: ") + msg);
   if (!cond) failures++;
@@ -169,6 +172,17 @@ function decide(messages) {
   return { kind: "tool", name: "finish", args: { summary: `Typed "${term}" and clicked Search.` } };
 }
 
+// --- The three suitability probes testModel() sends, by their fixed prompts. ---
+function probeKind(bodyObj) {
+  const text = (bodyObj.messages || [])
+    .map((m) => (typeof m.content === "string" ? m.content : (m.content || []).map((p) => p.text || "").join(" ")))
+    .join(" ");
+  if (/exactly one word: ready/i.test(text)) return "text";
+  if (/call the echo tool/i.test(text)) return "tools";
+  if (/what color fills this image/i.test(text)) return "vision";
+  return null;
+}
+
 function sseText(res, text) {
   res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", "access-control-allow-origin": "*" });
   const send = (o) => res.write("data: " + JSON.stringify(o) + "\n\n");
@@ -275,6 +289,21 @@ function startServer() {
                 lastImageUrl = (p.image_url && p.image_url.url) || "";
               }
         }
+        // A model-suitability probe: answer it as a fully capable model would.
+        // Checked before the no-tools branch below — the text and vision probes
+        // carry no tools either.
+        const probe = probeKind(bodyObj);
+        if (probe) {
+          probeRequests.push({ model: bodyObj.model, kind: probe });
+          res.on("error", () => {}); // a cancelled run aborts mid-response
+          const reply = () => {
+            if (res.destroyed || res.writableEnded) return;
+            if (probe === "tools") return sseToolCall(res, "probe_call", "echo", { word: "ok" });
+            return sseText(res, probe === "vision" ? "red" : "ready");
+          };
+          if (probe === "tools" && probeDelayMs) return setTimeout(reply, probeDelayMs);
+          return reply();
+        }
         // The plan-approval "planning" call is the only request sent with no tools.
         if (!bodyObj.tools || bodyObj.tools.length === 0) {
           return sseText(
@@ -324,6 +353,10 @@ async function main() {
       "--no-default-browser-check",
       `--disable-extensions-except=${EXT_DIR}`,
       `--load-extension=${EXT_DIR}`,
+      // A non-loopback hostname that still lands on the mock, so the
+      // "a key-less hosted provider sends nothing" assertion can actually fail:
+      // if the code probed it, the request would be recorded.
+      `--host-resolver-rules=MAP ${HOSTED_ALIAS} 127.0.0.1`,
     ],
   });
 
@@ -429,6 +462,244 @@ async function main() {
       check(false, `venice: options-page flow threw: ${e.message}`);
     } finally {
       await vPage.close().catch(() => {});
+    }
+
+    // --- Options page: picking a model probes it immediately. Same pattern as
+    // the venice block — a FRESH page, one extra provider card, removed again
+    // so the remaining tests see the seeded config. ---
+    const aPage = await context.newPage();
+    try {
+      await aPage.goto(`chrome-extension://${extId}/src/options/options.html`, { waitUntil: "load" });
+      await aPage.waitForSelector('#preset-select option[value="openai"]', { state: "attached", timeout: 5000 });
+      await aPage.selectOption("#preset-select", "openai");
+      await aPage.click("#add-provider");
+      await aPage.waitForFunction(() => document.querySelectorAll(".provider").length === 2, null, { timeout: 5000 });
+      const aId = await aPage.evaluate(() => document.querySelectorAll(".provider")[1].dataset.id);
+      const sel = `.provider[data-id="${aId}"]`;
+      // Set a field the way the user does: "input" while typing, "change" when
+      // the value is committed (datalist pick or blur).
+      const setField = (field, value, events) =>
+        aPage.evaluate(
+          ([s, f, v, evs]) => {
+            const el = document.querySelector(s).querySelector(f);
+            el.value = v;
+            for (const e of evs) el.dispatchEvent(new Event(e, { bubbles: true }));
+          },
+          [sel, field, value, events],
+        );
+      const statusText = () => aPage.$eval(`${sel} .test-status`, (el) => el.textContent).catch(() => "");
+      const awaitStatus = (re, timeout) =>
+        aPage
+          .waitForFunction(
+            ([s, src]) => new RegExp(src).test(document.querySelector(s + " .test-status")?.textContent || ""),
+            [sel, re.source],
+            { timeout },
+          )
+          .then(() => true)
+          .catch(() => false);
+      const probesFor = (model) => probeRequests.filter((p) => p.model === model).map((p) => p.kind);
+      const mockPort = new URL(base).port;
+
+      // (e) A hosted provider with no key: a hint instead of a request. The
+      // host is an alias Chrome resolves to the mock, so a request the code
+      // shouldn't have sent would be recorded — the next check proves that.
+      probeRequests = [];
+      await setField(".base-url", `http://${HOSTED_ALIAS}:${mockPort}/v1`, ["change"]);
+      await awaitStatus(/Add your API key/, 3000);
+      const hint = await statusText();
+      check(
+        hint.includes("Add your API key and the test will run automatically."),
+        `auto-test: a key-less hosted provider says the test is waiting for the key (got "${hint}")`,
+      );
+      check(probeRequests.length === 0, `auto-test: nothing is sent without a key (got ${probeRequests.length} requests)`);
+
+      // Pasting the key is the other trigger — the preset already filled the
+      // model in — and it shows the same hostname does reach the mock.
+      await setField(".api-key", "mock-key", ["change"]);
+      const keyedDone = await awaitStatus(/This model can drive OpenSidekick/, 20000);
+      check(
+        keyedDone && probesFor("gpt-4o").length === 3,
+        `auto-test: pasting the key probes the hosted host (got ${probesFor("gpt-4o").join(",") || "none"})`,
+      );
+
+      // Take the key away again and pick a model the mock has never seen: the
+      // hint comes back and the alias records nothing.
+      probeRequests = [];
+      await setField(".api-key", "", ["change"]);
+      await setField(".model", "unkeyed-model", ["input", "change"]);
+      await awaitStatus(/Add your API key/, 3000);
+      check(
+        probesFor("unkeyed-model").length === 0 && (await statusText()).includes("Add your API key"),
+        `auto-test: taking the key away stops the probes (got ${probesFor("unkeyed-model").join(",") || "none"})`,
+      );
+
+      // Point the card at the loopback mock: 127.0.0.1 needs no key, so from
+      // here on the probes run on their own. (Model cleared first so the base
+      // URL change has nothing to run.)
+      await setField(".model", "", ["input", "change"]);
+      await setField(".base-url", `${base}/v1`, ["change"]);
+
+      // (a) The progress line appears at once and its dot run animates. The
+      // tools probe is held open long enough that every sample lands inside the
+      // window even on a slow machine.
+      probeDelayMs = 6000;
+      probeRequests = [];
+      await setField(".model", "probe-one", ["input", "change"]);
+      check(await awaitStatus(/Testing/, 1500), "auto-test: a 'Testing' line appears within 1.5s of picking a model");
+      const dots = [];
+      for (let i = 0; i < 3; i++) {
+        dots.push(await aPage.$eval(`${sel} .test-progress .dots`, (el) => el.textContent.length).catch(() => null));
+        if (i < 2) await aPage.waitForTimeout(400);
+      }
+      check(
+        dots.every((d) => typeof d === "number") && new Set(dots).size > 1,
+        `auto-test: the dot run advances while the probes run (counts ${dots.join(",")})`,
+      );
+
+      // (b) All three probes report in, then the verdict.
+      const verdictSeen = await awaitStatus(/This model can drive OpenSidekick/, 15000);
+      const doneText = await statusText();
+      check(
+        verdictSeen && /✓ Text/.test(doneText) && /✓ Tools/.test(doneText) && /✓ Vision/.test(doneText),
+        `auto-test: text, tools and vision all pass and the verdict lands (got "${doneText}")`,
+      );
+
+      // (c) The input+change pair a datalist pick fires is ONE run: 3 requests.
+      const oneRun = probesFor("probe-one");
+      check(
+        oneRun.length === 3 && new Set(oneRun).size === 3,
+        `auto-test: picking a model sends exactly one probe per capability (got ${oneRun.join(",") || "none"})`,
+      );
+
+      // (g) The real keyboard sequence for a model id the provider lists: the
+      // debounced "input" run and the commit "change" run on blur are one test,
+      // not two. (Six requests here is the regression this guards.)
+      probeDelayMs = 0;
+      await aPage.click(`${sel} .fetch-models`);
+      await aPage.waitForFunction((s) => document.querySelector(s + " datalist").options.length === 1, sel, { timeout: 10000 });
+      probeRequests = [];
+      await aPage.click(`${sel} .model`, { clickCount: 3 }); // select what's there
+      await aPage.keyboard.type("mock-model");
+      await aPage.waitForTimeout(1600); // past the 700 ms debounce: the run has started
+      await aPage.keyboard.press("Tab"); // commit
+      const typedDone = await awaitStatus(/This model can drive OpenSidekick/, 15000);
+      await aPage.waitForTimeout(1000); // a second run would have landed by now
+      check(
+        typedDone && probesFor("mock-model").length === 3,
+        `auto-test: typing a listed model id and blurring runs the probes once (got ${probesFor("mock-model").join(",") || "none"})`,
+      );
+
+      // (h) A config write from another surface (the side panel saving a
+      // workflow, the agent granting a permission) rebuilds the cards mid-test.
+      // The run is picked up again on the new card instead of leaving the card
+      // blank with no result.
+      probeDelayMs = 4000;
+      probeRequests = [];
+      await setField(".model", "probe-rerender", ["input", "change"]);
+      await awaitStatus(/Testing/, 2000);
+      await aPage.evaluate(async (key) => {
+        const cfg = (await chrome.storage.local.get(key))[key];
+        cfg.settings.maxSteps = 16; // anything, as long as it isn't our own write
+        await chrome.storage.local.set({ [key]: cfg });
+      }, STORAGE_KEY);
+      // The settings field proves the page really re-read and re-rendered, so
+      // the status assertion below can't pass by the write having been ignored.
+      const reRendered = await aPage
+        .waitForFunction(() => document.querySelector("#max-steps").value === "16", null, { timeout: 5000 })
+        .then(() => true)
+        .catch(() => false);
+      const reRan = await awaitStatus(/This model can drive OpenSidekick/, 25000);
+      check(
+        reRendered && reRan,
+        `auto-test: an outside config write mid-test doesn't swallow the result (re-rendered ${reRendered}, got "${await statusText()}")`,
+      );
+      await aPage.evaluate(async (key) => {
+        const cfg = (await chrome.storage.local.get(key))[key];
+        cfg.settings.maxSteps = 15; // put the seeded value back for the later checks
+        await chrome.storage.local.set({ [key]: cfg });
+      }, STORAGE_KEY);
+      await aPage.waitForFunction(() => document.querySelector("#max-steps").value === "15", null, { timeout: 5000 });
+
+      // (d) Picking another model mid-run cancels the first one.
+      probeDelayMs = 2000;
+      probeRequests = [];
+      await setField(".model", "probe-cancel-a", ["input", "change"]);
+      await awaitStatus(/✓ Text/, 10000); // its tools probe is now open
+      await setField(".model", "probe-cancel-b", ["input", "change"]);
+      const secondDone = await awaitStatus(/This model can drive OpenSidekick/, 20000);
+      const cancelText = await statusText();
+      check(
+        secondDone && cancelText.includes("probe-cancel-b") && !cancelText.includes("probe-cancel-a"),
+        `auto-test: the finished status belongs to the second model only (got "${cancelText}")`,
+      );
+      const runA = probesFor("probe-cancel-a");
+      const runB = probesFor("probe-cancel-b");
+      check(
+        runA.length === 2 && runB.length === 3,
+        `auto-test: the cancelled run stops at the open probe (a: ${runA.join(",")} | b: ${runB.join(",")})`,
+      );
+
+      // (f) The Test button still runs the same path, disabled while it does.
+      probeRequests = [];
+      await aPage.click(`${sel} .test-model`);
+      const btnDisabled = await aPage
+        .waitForFunction((s) => document.querySelector(s + " .test-model").disabled === true, sel, { timeout: 2000 })
+        .then(() => true)
+        .catch(() => false);
+      check(btnDisabled, "auto-test: the Test button is disabled while its run is in flight");
+      const btnFreed = await aPage
+        .waitForFunction((s) => document.querySelector(s + " .test-model").disabled === false, sel, { timeout: 20000 })
+        .then(() => true)
+        .catch(() => false);
+      check(
+        btnFreed && probesFor("probe-cancel-b").length === 3,
+        `auto-test: the Test button re-runs the three probes and frees itself (got ${probeRequests.length} requests)`,
+      );
+
+      probeDelayMs = 0;
+      await aPage.click(`${sel} .delete-provider`);
+      await aPage.waitForFunction(
+        ([key, id]) => chrome.storage.local.get(key).then((r) => !(r[key]?.providers || []).some((p) => p.id === id)),
+        [STORAGE_KEY, aId],
+        { timeout: 5000 },
+      );
+
+      // (i) A local preset added before its server is up: the first thing the
+      // user sees says what to do, not that the model can't call tools.
+      await aPage.selectOption("#preset-select", "ollama");
+      await aPage.click("#add-provider");
+      await aPage.waitForFunction(() => document.querySelectorAll(".provider").length === 2, null, { timeout: 5000 });
+      const oId = await aPage.evaluate(() => document.querySelectorAll(".provider")[1].dataset.id);
+      const oSel = `.provider[data-id="${oId}"]`;
+      const unreachable = await aPage
+        .waitForFunction((s) => /Couldn't reach/.test(document.querySelector(s + " .test-status")?.textContent || ""), oSel, { timeout: 15000 })
+        .then(() => true)
+        .catch(() => false);
+      const oText = await aPage.$eval(`${oSel} .test-status`, (el) => el.textContent).catch(() => "");
+      check(
+        unreachable && !/Tools didn't work/.test(oText),
+        `auto-test: a local preset whose server isn't running says how to fix it (got "${oText}")`,
+      );
+      await aPage.click(`${oSel} .delete-provider`);
+      await aPage.waitForFunction(
+        ([key, id]) => chrome.storage.local.get(key).then((r) => !(r[key]?.providers || []).some((p) => p.id === id)),
+        [STORAGE_KEY, oId],
+        { timeout: 5000 },
+      );
+
+      const leftOver = await aPage.evaluate(
+        (key) => chrome.storage.local.get(key).then((r) => (r[key]?.providers || []).map((p) => p.model)),
+        STORAGE_KEY,
+      );
+      check(
+        leftOver.length === 1 && leftOver[0] === "mock-model",
+        `auto-test: removing the card leaves the mock provider untouched (got ${JSON.stringify(leftOver)})`,
+      );
+    } catch (e) {
+      check(false, `auto-test: options-page flow threw: ${e.message}`);
+    } finally {
+      probeDelayMs = 0;
+      await aPage.close().catch(() => {});
     }
 
     // Collect agent events, and auto-respond to permission prompts (recording

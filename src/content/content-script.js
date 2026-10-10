@@ -475,6 +475,37 @@
   // Activity overlay (so the user always sees when the agent is acting)
   // -------------------------------------------------------------------------
 
+  // One place for every value the overlay paints, because this sits on the
+  // user's own page and shows up in every demo GIF — it is the most publicly
+  // visible surface the extension owns. It mirrors ../common/ui.css (which a
+  // content script can't link): accent #4f46e5, dark surface #1b1b1f, the
+  // panel's radii and shadow. Inline styles only — the host page's CSP may
+  // reject an injected <style>, and the pulse runs through the Web Animations
+  // API for the same reason.
+  const OVERLAY_CSS = {
+    // A 2px ring reads as "active", not as the error state a 3px red-adjacent
+    // glow used to.
+    ring:
+      "position:fixed;inset:0;pointer-events:none;z-index:2147483647;" +
+      "box-shadow:inset 0 0 0 2px rgba(79,70,229,.85), inset 0 0 28px 8px rgba(79,70,229,.2);",
+    pill:
+      "position:fixed;top:10px;left:50%;transform:translateX(-50%);pointer-events:auto;" +
+      "display:flex;align-items:center;gap:9px;max-width:min(560px,86vw);" +
+      "background:#1b1b1f;color:#ececed;border:1px solid rgba(255,255,255,.14);" +
+      "padding:5px 6px 5px 12px;border-radius:999px;" +
+      "box-shadow:0 10px 30px -12px rgba(0,0,0,.65);",
+    dot: "width:7px;height:7px;border-radius:50%;background:#8b7dff;flex:0 0 auto;",
+    label:
+      'font:650 11px/1.5 ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;' +
+      "letter-spacing:.12em;text-transform:uppercase;white-space:nowrap;" +
+      "overflow:hidden;text-overflow:ellipsis;",
+    // Ghost, not solid red: Stop is the way out of a normal run, not an alarm.
+    stop:
+      "pointer-events:auto;background:transparent;color:#fff;cursor:pointer;" +
+      "border:1px solid rgba(255,255,255,.38);border-radius:999px;padding:3px 11px;" +
+      'font:600 11.5px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;',
+  };
+
   function overlay(msg) {
     const ID = "opensidekick-overlay";
     let el = document.getElementById(ID);
@@ -488,24 +519,18 @@
       el = document.createElement("div");
       el.id = ID;
       // Glow border; never intercepts page interaction.
-      el.style.cssText =
-        "position:fixed;inset:0;pointer-events:none;z-index:2147483647;" +
-        "box-shadow:inset 0 0 0 3px rgba(79,70,229,.9), inset 0 0 26px 6px rgba(79,70,229,.32);";
+      el.style.cssText = OVERLAY_CSS.ring;
       const pill = document.createElement("div");
-      pill.style.cssText =
-        "position:fixed;top:10px;left:50%;transform:translateX(-50%);pointer-events:auto;" +
-        "display:flex;align-items:center;gap:9px;background:#1c1c1e;color:#fff;" +
-        'font:600 12px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;' +
-        "padding:6px 8px 6px 12px;border-radius:999px;box-shadow:0 4px 16px rgba(0,0,0,.3);";
+      pill.style.cssText = OVERLAY_CSS.pill;
       const dot = document.createElement("span");
-      dot.style.cssText = "width:8px;height:8px;border-radius:50%;background:#8b7dff;flex:0 0 auto;";
+      dot.style.cssText = OVERLAY_CSS.dot;
+      pulse(dot);
       const label = document.createElement("span");
       label.id = ID + "-label";
+      label.style.cssText = OVERLAY_CSS.label;
       const stop = document.createElement("button");
       stop.textContent = "Stop";
-      stop.style.cssText =
-        "pointer-events:auto;background:#dc2626;color:#fff;border:0;border-radius:999px;" +
-        "padding:3px 10px;font:inherit;cursor:pointer;";
+      stop.style.cssText = OVERLAY_CSS.stop;
       stop.addEventListener("click", () => {
         try {
           chrome.runtime.sendMessage({ type: "stop_task" });
@@ -520,6 +545,18 @@
     const label = document.getElementById(ID + "-label");
     if (label) label.textContent = msg.label || "OpenSidekick is working…";
     return { ok: true };
+  }
+
+  function pulse(node) {
+    try {
+      if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+      node.animate([{ opacity: 1 }, { opacity: 0.3 }, { opacity: 1 }], {
+        duration: 1400,
+        iterations: Infinity,
+      });
+    } catch (e) {
+      /* no Web Animations — a static dot is fine */
+    }
   }
 
   // -------------------------------------------------------------------------

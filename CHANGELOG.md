@@ -5,6 +5,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Models are tested the moment you pick them.** Choosing or typing a model id
+  in Settings → Providers (or pasting the key for a provider whose model is
+  already filled in) now runs the three-probe suitability test automatically,
+  with a live "Testing…" progress line that fills in ✓/⚠/✗ for text, tool
+  calling and vision as each probe finishes. Picking another model mid-test
+  cancels the first. The Test button is still there for re-runs.
+- **Visual refresh, first pass.** One shared token sheet (`src/common/ui.css`,
+  lifted from opensidekick.app) now drives the side panel, the settings page
+  and the on-page activity pill; header buttons use inline SVG icons instead of
+  Unicode glyphs; the settings page gains a section sidebar with status tags;
+  the activity ring is thinner and Stop is a ghost button so a normal run no
+  longer reads as an error. No behaviour changes; every test selector kept.
+
 ## [0.1.9] — 2026-10-10
 
 ### Added

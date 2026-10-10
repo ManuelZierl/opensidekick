@@ -4,19 +4,76 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>OpenSidekick</title>
+    <link rel="stylesheet" href="../common/ui.css" />
     <link rel="stylesheet" href="sidepanel.css" />
   </head>
   <body>
+    <!-- Icon sprite. Inline SVG is the only way to get real icons into an MV3
+         page without a fetch or a font: no network, no CSP exception. Shapes are
+         stroked in currentColor, so hover and active states need no second copy. -->
+    <svg hidden aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+      <symbol id="ic-record" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="7.5" />
+        <circle cx="12" cy="12" r="3.4" fill="currentColor" stroke="none" />
+      </symbol>
+      <symbol id="ic-workflows" viewBox="0 0 24 24">
+        <circle cx="5" cy="6.5" r="1.4" fill="currentColor" stroke="none" />
+        <circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none" />
+        <circle cx="5" cy="17.5" r="1.4" fill="currentColor" stroke="none" />
+        <path d="M9.5 6.5H20M9.5 12H20M9.5 17.5h7" />
+      </symbol>
+      <symbol id="ic-plus" viewBox="0 0 24 24">
+        <path d="M12 5.5v13M5.5 12h13" />
+      </symbol>
+      <symbol id="ic-settings" viewBox="0 0 24 24">
+        <path d="M3.5 7.5h8M15.5 7.5h5M3.5 16.5h5M12.5 16.5h8" />
+        <circle cx="13.5" cy="7.5" r="2.4" />
+        <circle cx="10.5" cy="16.5" r="2.4" />
+      </symbol>
+      <symbol id="ic-stop" viewBox="0 0 24 24">
+        <rect x="7" y="7" width="10" height="10" rx="2" />
+      </symbol>
+      <symbol id="ic-chevron-down" viewBox="0 0 24 24">
+        <path d="M6 9.5l6 6 6-6" />
+      </symbol>
+      <symbol id="ic-alert" viewBox="0 0 24 24">
+        <path d="M10.6 4.2 2.9 17.9A1.6 1.6 0 0 0 4.3 20.3h15.4a1.6 1.6 0 0 0 1.4-2.4L13.4 4.2a1.6 1.6 0 0 0-2.8 0z" />
+        <path d="M12 9.5v4M12 17h.01" />
+      </symbol>
+      <symbol id="ic-shield" viewBox="0 0 24 24">
+        <path d="M12 3.2l7.8 2.8v5.6c0 4.8-3.3 7.9-7.8 8.7-4.5-.8-7.8-3.9-7.8-8.7V6z" />
+        <path d="M9.3 12.1l2 2 3.4-3.6" />
+      </symbol>
+      <symbol id="ic-ban" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="8.2" />
+        <path d="M6.2 17.8 17.8 6.2" />
+      </symbol>
+      <symbol id="ic-dot" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="3.4" />
+      </symbol>
+      <symbol id="ic-play" viewBox="0 0 24 24">
+        <path d="M8 5.2l11 6.8-11 6.8z" fill="currentColor" stroke="none" />
+      </symbol>
+    </svg>
+
     <header class="topbar">
       <div class="brand">
         <img src="../../icons/icon32.png" alt="" width="20" height="20" />
         <span>OpenSidekick</span>
       </div>
       <div class="topbar-actions">
-        <button id="record-btn" class="icon-btn" title="Record a workflow">⏺</button>
-        <button id="workflows-btn" class="icon-btn" title="Saved workflows">▤</button>
-        <button id="new-chat" class="icon-btn" title="New chat">＋</button>
-        <button id="open-settings" class="icon-btn" title="Settings">⚙</button>
+        <button id="record-btn" class="icon-btn" title="Record a workflow" aria-label="Record a workflow">
+          <svg class="ic"><use href="#ic-record" /></svg>
+        </button>
+        <button id="workflows-btn" class="icon-btn" title="Saved workflows" aria-label="Saved workflows">
+          <svg class="ic"><use href="#ic-workflows" /></svg>
+        </button>
+        <button id="new-chat" class="icon-btn" title="New chat" aria-label="New chat">
+          <svg class="ic"><use href="#ic-plus" /></svg>
+        </button>
+        <button id="open-settings" class="icon-btn" title="Settings" aria-label="Settings">
+          <svg class="ic"><use href="#ic-settings" /></svg>
+        </button>
       </div>
     </header>
 
@@ -24,39 +81,55 @@
     <div id="rec-banner" class="rec-banner" hidden></div>
     <div id="status-bar" class="status-bar" hidden></div>
 
-    <main id="messages" class="messages" aria-live="polite">
-      <div id="empty-state" class="empty-state">
-        <h1>Your browser, any model.</h1>
-        <p>
-          Ask me to read, summarize, or act on the current page. I can click,
-          type, navigate, and work across tabs — using whichever LLM you
-          configured.
-        </p>
-        <ul class="examples">
-          <li data-example="Summarize this page in 5 bullet points.">Summarize this page in 5 bullets</li>
-          <li data-example="Find the main contact email on this page.">Find the contact email</li>
-          <li data-example="Fill in my name as 'Alex Doe' in the form on this page, but do not submit it.">Fill a form (no submit)</li>
-        </ul>
-        <p id="not-configured" class="warn" hidden>
-          ⚠ No model configured yet. <a href="#" id="setup-link">Open Settings</a> to add one.
-        </p>
-      </div>
-    </main>
+    <div class="messages-wrap">
+      <main id="messages" class="messages" aria-live="polite">
+        <div id="empty-state" class="empty-state">
+          <p class="eyebrow">Bring your own model</p>
+          <h1 class="os-display">Your browser, any model.</h1>
+          <p class="empty-lede">
+            Ask me to read, summarize, or act on the current page. I can click,
+            type, navigate, and work across tabs — using whichever LLM you
+            configured.
+          </p>
+          <ul class="examples">
+            <li data-example="Summarize this page in 5 bullet points.">Summarize this page in 5 bullets</li>
+            <li data-example="Find the main contact email on this page.">Find the contact email</li>
+            <li data-example="Fill in my name as 'Alex Doe' in the form on this page, but do not submit it.">Fill a form (no submit)</li>
+          </ul>
+          <p id="not-configured" class="warn" hidden>
+            <svg class="ic"><use href="#ic-alert" /></svg>
+            <span>No model configured yet. <a href="#" id="setup-link">Open Settings</a> to add one.</span>
+          </p>
+        </div>
+      </main>
+      <button type="button" id="jump-latest" class="jump-latest" hidden>
+        Jump to latest
+        <svg class="ic"><use href="#ic-chevron-down" /></svg>
+      </button>
+    </div>
 
     <form id="composer" class="composer">
       <div id="slash-menu" class="slash-menu" hidden></div>
+      <div id="site-menu" class="site-menu" hidden></div>
       <textarea
         id="input"
         rows="1"
         placeholder="Ask about or act on this page…  ( / for saved prompts )"
       ></textarea>
-      <div class="autonomy-row">
-        <span class="autonomy-label">Approval</span>
-        <div id="autonomy" class="segmented" role="group" aria-label="Approval mode">
+      <div class="composer-row">
+        <button type="button" id="context-hint" class="site-chip" title="Site rules for this page"></button>
+        <div
+          id="autonomy"
+          class="segmented"
+          role="group"
+          aria-label="Approval mode"
+          title="How much the agent may do before asking you"
+        >
           <button
             type="button"
             class="seg"
             data-mode="plan"
+            aria-pressed="false"
             title="Plan first: I outline the steps and wait for your approval before acting (safest)"
           >
             Plan
@@ -65,6 +138,7 @@
             type="button"
             class="seg"
             data-mode="ask"
+            aria-pressed="false"
             title="Ask first: I confirm before acting on a new site — allow once, always, or decline"
           >
             Ask
@@ -73,18 +147,18 @@
             type="button"
             class="seg"
             data-mode="auto"
+            aria-pressed="false"
             title="Don't ask: I act without prompting on allowed sites (sensitive sites still confirm)"
           >
             Auto
           </button>
         </div>
-      </div>
-      <div id="site-menu" class="site-menu" hidden></div>
-      <div class="composer-row">
-        <button type="button" id="context-hint" class="context-hint site-chip" title="Site rules for this page"></button>
         <div class="composer-buttons">
-          <button type="button" id="stop-btn" class="stop-btn" hidden>■ Stop</button>
-          <button type="submit" id="send-btn" class="send-btn">Send</button>
+          <button type="button" id="stop-btn" class="stop-btn" hidden>
+            <svg class="ic"><use href="#ic-stop" /></svg>
+            Stop
+          </button>
+          <button type="submit" id="send-btn" class="send-btn btn">Send</button>
         </div>
       </div>
     </form>

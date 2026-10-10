@@ -1,39 +1,12 @@
+/* Side panel. Colour, radius, shadow, type and focus come from
+   ../common/ui.css; this file is layout and panel-specific components only.
+
+   The panel is 320-420px wide, so the rules below assume a single narrow
+   column: the assistant's prose is the hero, everything else (chrome, tool
+   log, chips) is deliberately quieter. */
+
 :root {
-  --bg: #ffffff;
-  --panel: #f7f7f8;
-  --border: #e4e4e7;
-  --text: #1f2328;
-  --muted: #6b7280;
-  --accent: #4f46e5;
-  --accent-soft: #eef2ff;
-  --user-bg: #4f46e5;
-  --user-text: #ffffff;
-  --tool-bg: #f1f5f9;
-  --tool-border: #cbd5e1;
-  --warn: #b45309;
-  --danger: #dc2626;
-  --radius: 12px;
-  font-size: 14px;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #1c1c1e;
-    --panel: #262629;
-    --border: #3a3a3d;
-    --text: #e7e7ea;
-    --muted: #9a9aa2;
-    --accent: #8b7dff;
-    --accent-soft: #2b2b40;
-    --user-bg: #4f46e5;
-    --user-text: #ffffff;
-    --tool-bg: #2a2a2e;
-    --tool-border: #3f3f45;
-  }
-}
-
-* {
-  box-sizing: border-box;
+  font-size: 13.5px;
 }
 
 html,
@@ -45,19 +18,20 @@ body {
 body {
   display: flex;
   flex-direction: column;
-  background: var(--bg);
-  color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
+  background: var(--os-surface);
+  color: var(--os-ink);
+  line-height: 1.55;
 }
+
+/* Top bar ---------------------------------------------------------------- */
 
 .topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
-  background: var(--panel);
+  padding: 7px 10px 7px 12px;
+  border-bottom: 1px solid var(--os-line);
+  background: var(--os-paper);
   flex: 0 0 auto;
 }
 
@@ -65,64 +39,78 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-weight: 600;
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: -0.01em;
 }
 
 .topbar-actions {
   display: flex;
-  gap: 4px;
+  gap: 2px;
 }
 
 .icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: none;
   background: transparent;
-  color: var(--muted);
-  font-size: 18px;
+  color: var(--os-muted);
   width: 30px;
   height: 30px;
   border-radius: 8px;
   cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
 }
 .icon-btn:hover {
-  background: var(--accent-soft);
-  color: var(--accent);
+  background: var(--os-accent-soft);
+  color: var(--os-accent-ink);
 }
+
+.icon-btn.recording {
+  color: var(--os-bad-ink);
+  animation: recpulse 1.2s infinite ease-in-out;
+}
+@keyframes recpulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+/* Banners -------------------------------------------------------------- */
 
 .status-bar {
   padding: 6px 12px;
   font-size: 12px;
-  color: var(--muted);
-  background: var(--accent-soft);
-  border-bottom: 1px solid var(--border);
+  color: var(--os-accent-ink);
+  background: var(--os-accent-soft);
+  border-bottom: 1px solid var(--os-line);
   display: flex;
   align-items: center;
-  gap: 6px;
-}
-
-.icon-btn.recording {
-  color: var(--danger);
-  animation: recpulse 1.2s infinite ease-in-out;
-}
-@keyframes recpulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+  gap: 7px;
+  flex: 0 0 auto;
 }
 
 .rec-banner {
-  padding: 7px 12px;
+  padding: 7px 10px 7px 12px;
   font-size: 12px;
-  background: color-mix(in srgb, var(--danger) 10%, transparent);
-  border-bottom: 1px solid var(--border);
-  color: var(--danger);
+  background: var(--os-bad-soft);
+  border-bottom: 1px solid var(--os-line);
+  color: var(--os-bad-ink);
   display: flex;
   align-items: center;
   gap: 8px;
+  flex: 0 0 auto;
 }
 .rec-banner .rec-dot {
-  width: 9px;
-  height: 9px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
-  background: var(--danger);
+  background: var(--os-bad);
   flex: 0 0 auto;
   animation: recpulse 1.2s infinite ease-in-out;
 }
@@ -130,26 +118,29 @@ body {
   flex: 1;
 }
 .rec-banner button {
-  border: 1px solid var(--danger);
-  color: var(--danger);
-  background: var(--bg);
+  border: 1px solid var(--os-bad);
+  color: var(--os-bad-ink);
+  background: transparent;
   border-radius: 8px;
   padding: 3px 10px;
+  font: inherit;
   font-size: 12px;
   cursor: pointer;
 }
 
+/* Workflows menu ------------------------------------------------------- */
+
 .wf-menu {
   position: absolute;
-  top: 44px;
-  right: 12px;
+  top: 42px;
+  right: 10px;
   z-index: 30;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.16);
-  min-width: 200px;
-  max-width: 280px;
+  background: var(--os-surface);
+  border: 1px solid var(--os-line);
+  border-radius: var(--os-r);
+  box-shadow: var(--os-shadow-2);
+  min-width: 210px;
+  max-width: 290px;
   max-height: 320px;
   overflow-y: auto;
   padding: 4px;
@@ -157,14 +148,14 @@ body {
 .wf-item {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   padding: 7px 9px;
-  border-radius: 7px;
+  border-radius: var(--os-r-sm);
   cursor: pointer;
   font-size: 13px;
 }
 .wf-item:hover {
-  background: var(--accent-soft);
+  background: var(--os-accent-soft);
 }
 .wf-item .wf-name {
   flex: 1;
@@ -173,80 +164,151 @@ body {
   white-space: nowrap;
 }
 .wf-item .wf-count {
+  font-family: var(--os-mono);
   font-size: 11px;
-  color: var(--muted);
+  color: var(--os-muted);
 }
 .wf-empty {
   padding: 10px 12px;
   font-size: 12px;
-  color: var(--muted);
+  color: var(--os-muted);
+}
+
+/* Transcript ----------------------------------------------------------- */
+
+.messages-wrap {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
 }
 
 .messages {
   flex: 1 1 auto;
   overflow-y: auto;
-  padding: 12px;
+  padding: 14px 12px 18px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
+  /* Content fades into the chrome instead of being cut by it. */
+  mask-image: linear-gradient(to bottom, transparent 0, #000 16px);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 16px);
 }
 
+.jump-latest {
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--os-ink-soft);
+  background: var(--os-surface);
+  border: 1px solid var(--os-line-2);
+  border-radius: var(--os-r-pill);
+  padding: 5px 12px;
+  box-shadow: var(--os-shadow-2);
+  cursor: pointer;
+  z-index: 10;
+}
+.jump-latest:hover {
+  border-color: var(--os-accent);
+  color: var(--os-accent-ink);
+}
+.jump-latest .ic {
+  width: 14px;
+  height: 14px;
+}
+
+/* Empty state: the landing page's voice — mono eyebrow, one tight headline,
+   one line of prose, then the examples as rows. Centred pills wrap badly at
+   380px, so everything is left-aligned at full measure. */
 .empty-state {
   margin: auto 0;
-  text-align: center;
-  color: var(--muted);
-  padding: 16px;
+  padding: 4px 2px;
+  color: var(--os-ink-soft);
 }
-.empty-state h1 {
-  font-size: 18px;
-  color: var(--text);
+.empty-state .eyebrow {
   margin: 0 0 8px;
 }
-.empty-state p {
-  margin: 0 0 12px;
+.empty-state h1 {
+  color: var(--os-ink);
+  margin: 0 0 8px;
 }
+.empty-lede {
+  margin: 0;
+  font-size: 13px;
+  color: var(--os-ink-soft);
+}
+
 .examples {
   list-style: none;
   padding: 0;
-  margin: 12px 0 0;
+  margin: 16px 0 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  border-top: 1px solid var(--os-line);
 }
 .examples li {
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 6px 12px;
+  position: relative;
+  padding: 9px 4px 9px 20px;
+  border-bottom: 1px solid var(--os-line);
   cursor: pointer;
   font-size: 13px;
-  color: var(--text);
-  background: var(--bg);
+  color: var(--os-ink);
+}
+.examples li::before {
+  content: "›";
+  position: absolute;
+  left: 4px;
+  font-family: var(--os-mono);
+  color: var(--os-accent-ink);
 }
 .examples li:hover {
-  border-color: var(--accent);
-  color: var(--accent);
+  color: var(--os-accent-ink);
 }
 
+#not-configured {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 14px 0 0;
+  padding: 9px 11px;
+  font-size: 12.5px;
+  background: var(--os-warn-soft);
+  border-radius: var(--os-r-sm);
+}
+#not-configured .ic {
+  margin-top: 2px;
+}
+
+/* Messages. The assistant speaks as plain prose on the panel surface — no
+   card, no bubble — so the answer is the only thing with real contrast. The
+   user's turn is a quiet right-aligned block with an accent rule. */
 .msg {
   max-width: 100%;
-  border-radius: var(--radius);
-  padding: 9px 12px;
   white-space: pre-wrap;
   word-wrap: break-word;
   overflow-wrap: anywhere;
 }
 .msg.user {
   align-self: flex-end;
-  background: var(--user-bg);
-  color: var(--user-text);
-  border-bottom-right-radius: 4px;
-  max-width: 85%;
+  max-width: 88%;
+  background: var(--os-surface-2);
+  border: 1px solid var(--os-line);
+  border-left: 2px solid var(--os-accent);
+  border-radius: var(--os-r);
+  padding: 8px 11px;
+  color: var(--os-ink);
+  font-size: 13px;
 }
 .msg.assistant {
-  align-self: flex-start;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-bottom-left-radius: 4px;
+  align-self: stretch;
+  color: var(--os-ink);
 }
 .msg.assistant :first-child {
   margin-top: 0;
@@ -255,75 +317,194 @@ body {
   margin-bottom: 0;
 }
 .msg.assistant p {
-  margin: 0 0 8px;
+  margin: 0 0 9px;
 }
 .msg.assistant pre {
-  background: var(--tool-bg);
-  border: 1px solid var(--tool-border);
+  background: var(--os-surface-2);
+  border: 1px solid var(--os-line);
   border-radius: 8px;
-  padding: 8px;
+  padding: 9px 10px;
   overflow-x: auto;
+}
+.msg.assistant pre code {
   font-size: 12px;
 }
 .msg.assistant code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--os-mono);
   font-size: 12px;
 }
 .msg.assistant ul,
 .msg.assistant ol {
-  margin: 0 0 8px;
+  margin: 0 0 9px;
   padding-left: 20px;
 }
+.msg.assistant strong {
+  font-weight: 650;
+}
 
-.tool-event {
-  align-self: flex-start;
+/* Tool log. A run is a log, not a stack of cards: one rule, one dot per
+   action, status in the dot only. Consecutive actions collapse under a
+   single header so a 10-step run reads as one object. */
+.log {
+  align-self: stretch;
   font-size: 12px;
-  color: var(--muted);
-  background: var(--tool-bg);
-  border: 1px solid var(--tool-border);
-  border-radius: 8px;
-  padding: 5px 10px;
+}
+.log-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  list-style: none;
+  cursor: pointer;
+  color: var(--os-muted);
+  padding: 2px 0;
+  border-radius: var(--os-r-sm);
+  width: fit-content;
+}
+.log-head::-webkit-details-marker {
+  display: none;
+}
+.log-head:hover {
+  color: var(--os-ink-soft);
+}
+.log-head .ic {
+  width: 13px;
+  height: 13px;
+  transition: transform 120ms ease;
+}
+.log[open] > .log-head .ic {
+  transform: rotate(180deg);
+}
+.log-head .log-sum {
+  font-family: var(--os-mono);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+
+.log-rows {
+  margin: 2px 0 0 5px;
+  padding-left: 18px;
+  border-left: 1px solid var(--os-line);
+}
+.log-row {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  padding: 3px 0;
+  color: var(--os-muted);
+}
+.log-dot {
+  position: absolute;
+  left: -22px;
+  top: 6px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--os-line-2);
+  box-shadow: 0 0 0 2px var(--os-surface);
+}
+.log-row.ok .log-dot {
+  background: var(--os-good);
+}
+.log-row.err .log-dot {
+  background: var(--os-bad);
+}
+.log-row.running .log-dot {
+  background: var(--os-accent);
+  animation: pulse 1s infinite ease-in-out;
+}
+.log-row .tool-name {
+  font-family: var(--os-mono);
+  font-size: 11.5px;
+  color: var(--os-ink-soft);
+  flex: 0 0 auto;
+}
+.log-row .tool-detail {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.log-row .log-dur {
+  flex: 0 0 auto;
+  font-family: var(--os-mono);
+  font-size: 11px;
+  color: var(--os-muted);
+}
+
+/* Notes and alerts: single quiet lines, not pills. */
+.note {
+  align-self: stretch;
+  font-size: 12px;
+  color: var(--os-muted);
   display: flex;
   gap: 6px;
-  align-items: center;
-  max-width: 90%;
+  align-items: baseline;
 }
-.tool-event.err {
-  color: var(--danger);
-  border-color: var(--danger);
-}
-.tool-event.warn {
-  color: var(--warn);
-  border-color: var(--warn);
-  background: color-mix(in srgb, var(--warn) 8%, transparent);
-}
-.tool-event .tool-name {
-  font-weight: 600;
-  font-family: ui-monospace, monospace;
+.note .ic {
+  width: 13px;
+  height: 13px;
+  position: relative;
+  top: 2px;
 }
 
+.alert {
+  align-self: stretch;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12.5px;
+  padding: 8px 11px;
+  border-radius: var(--os-r-sm);
+}
+.alert .ic {
+  margin-top: 2px;
+}
+.alert.bad {
+  background: var(--os-bad-soft);
+  color: var(--os-bad-ink);
+}
+.alert.warn {
+  background: var(--os-warn-soft);
+  color: var(--os-warn-ink);
+}
+
+/* Permission / plan card — the one decision point, so it is the loudest
+   element in the panel and the only tinted block. */
 .perm-card {
   align-self: stretch;
-  border: 1px solid var(--accent);
-  border-radius: var(--radius);
-  padding: 12px;
-  background: var(--accent-soft);
+  border: 1px solid var(--os-accent);
+  border-left: 3px solid var(--os-accent);
+  border-radius: var(--os-r);
+  padding: 12px 13px;
+  background: var(--os-accent-soft);
+  color: var(--os-ink);
+  box-shadow: var(--os-shadow-1);
 }
 .perm-card.sensitive {
-  border-color: var(--danger);
+  border-color: var(--os-bad);
+  background: var(--os-bad-soft);
 }
 .perm-card h3 {
   margin: 0 0 6px;
   font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
 }
 .perm-card p {
   margin: 0 0 10px;
   font-size: 13px;
-  color: var(--text);
 }
 .perm-card .origin {
-  font-family: ui-monospace, monospace;
+  font-family: var(--os-mono);
+  font-size: 12px;
   font-weight: 600;
+}
+.perm-card .muted-note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--os-muted);
 }
 .perm-buttons {
   display: flex;
@@ -331,21 +512,44 @@ body {
   flex-wrap: wrap;
 }
 .perm-buttons button {
-  border: 1px solid var(--border);
-  background: var(--bg);
-  color: var(--text);
+  min-height: 34px;
+  border: 1px solid var(--os-line-2);
+  background: var(--os-surface);
+  color: var(--os-ink);
   border-radius: 8px;
-  padding: 6px 10px;
+  padding: 7px 12px;
   cursor: pointer;
+  font: inherit;
   font-size: 13px;
+  font-weight: 600;
+}
+.perm-buttons button:hover:not(:disabled) {
+  border-color: var(--os-accent);
+  color: var(--os-accent-ink);
 }
 .perm-buttons button.primary {
-  background: var(--accent);
-  color: #fff;
-  border-color: var(--accent);
+  background: var(--os-accent);
+  color: var(--os-on-accent);
+  border-color: var(--os-accent);
+}
+.perm-buttons button.primary:hover:not(:disabled) {
+  background: var(--os-accent-hover);
+  color: var(--os-on-accent);
 }
 .perm-buttons button.danger {
-  color: var(--danger);
+  color: var(--os-bad-ink);
+}
+.perm-buttons button.danger:hover:not(:disabled) {
+  border-color: var(--os-bad);
+  color: var(--os-bad-ink);
+}
+.perm-buttons button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+/* The ring's inner gap must match the tinted card, not the page. */
+.perm-card :focus-visible {
+  box-shadow: 0 0 0 2px var(--os-accent-soft), 0 0 0 4px var(--os-accent);
 }
 
 .plan-steps {
@@ -365,34 +569,41 @@ body {
   align-items: center;
 }
 .plan-domains-label {
-  color: var(--muted);
+  color: var(--os-muted);
 }
 .domain-chip {
-  font-family: ui-monospace, monospace;
+  font-family: var(--os-mono);
   font-size: 11px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 999px;
+  background: var(--os-surface);
+  border: 1px solid var(--os-line);
+  border-radius: var(--os-r-pill);
   padding: 1px 8px;
 }
-.perm-buttons button:disabled {
-  opacity: 0.5;
-  cursor: default;
+.wf-name-input {
+  width: 100%;
+  min-height: 34px;
+  padding: 7px 9px;
+  border: 1px solid var(--os-line);
+  border-radius: 8px;
+  background: var(--os-surface);
+  color: var(--os-ink);
+  font: inherit;
+  margin-bottom: 8px;
 }
 
 .thinking {
-  align-self: flex-start;
-  color: var(--muted);
+  color: var(--os-muted);
   font-size: 13px;
   display: flex;
-  gap: 6px;
+  gap: 7px;
   align-items: center;
 }
 .dot-pulse {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--os-accent);
+  flex: 0 0 auto;
   animation: pulse 1s infinite ease-in-out;
 }
 @keyframes pulse {
@@ -405,13 +616,137 @@ body {
   }
 }
 
+/* Composer — two rows. Row 1 is the box; row 2 carries the site chip, the
+   approval control and Send. The old third row (a spelled-out "Approval"
+   label) moved into the control's aria-label and tooltip. */
 .composer {
   flex: 0 0 auto;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--os-line);
   padding: 8px;
-  background: var(--panel);
+  background: var(--os-paper);
   position: relative;
 }
+
+.composer textarea {
+  width: 100%;
+  resize: none;
+  border: 1px solid var(--os-line);
+  border-radius: var(--os-r);
+  padding: 8px 10px;
+  font: inherit;
+  color: var(--os-ink);
+  background: var(--os-surface);
+  max-height: 160px;
+}
+.composer textarea::placeholder {
+  color: var(--os-muted);
+}
+.composer textarea:focus-visible {
+  border-color: var(--os-accent);
+  box-shadow: 0 0 0 2px var(--os-paper), 0 0 0 4px var(--os-accent);
+}
+
+.composer-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.site-chip {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--os-muted);
+  font: inherit;
+  font-size: 11px;
+  padding: 4px 6px;
+  border-radius: var(--os-r-sm);
+  cursor: pointer;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.site-chip:hover {
+  background: var(--os-accent-soft);
+  color: var(--os-accent-ink);
+}
+.site-chip .site-state {
+  font-weight: 600;
+}
+.site-chip .site-state.ok {
+  color: var(--os-good-ink);
+}
+.site-chip .site-state.blocked {
+  color: var(--os-bad-ink);
+}
+.site-chip .site-state.warn {
+  color: var(--os-warn-ink);
+}
+
+.segmented {
+  display: inline-flex;
+  flex: 0 0 auto;
+  border: 1px solid var(--os-line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--os-surface);
+}
+.seg {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--os-muted);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 5px 9px;
+  cursor: pointer;
+  border-right: 1px solid var(--os-line);
+}
+.seg:last-child {
+  border-right: none;
+}
+.seg:hover {
+  background: var(--os-accent-soft);
+  color: var(--os-accent-ink);
+}
+.seg.active {
+  background: var(--os-accent);
+  color: var(--os-on-accent);
+}
+
+.composer-buttons {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+.send-btn {
+  font-size: 13px;
+  padding: 7px 14px;
+  border-radius: 8px;
+}
+.stop-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  color: var(--os-bad-ink);
+  border: 1px solid var(--os-bad);
+  border-radius: 8px;
+  padding: 6px 11px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.stop-btn:hover {
+  background: var(--os-bad-soft);
+}
+
+/* Popovers ------------------------------------------------------------- */
 
 .slash-menu {
   position: absolute;
@@ -419,10 +754,10 @@ body {
   left: 8px;
   right: 8px;
   margin-bottom: 4px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  box-shadow: 0 -4px 18px rgba(0, 0, 0, 0.14);
+  background: var(--os-surface);
+  border: 1px solid var(--os-line);
+  border-radius: var(--os-r);
+  box-shadow: var(--os-shadow-2);
   max-height: 240px;
   overflow-y: auto;
   z-index: 20;
@@ -433,24 +768,24 @@ body {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--os-line);
 }
 .slash-item:last-child {
   border-bottom: none;
 }
 .slash-item.active,
 .slash-item:hover {
-  background: var(--accent-soft);
+  background: var(--os-accent-soft);
 }
 .slash-cmd {
-  font-family: ui-monospace, monospace;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--accent);
+  font-family: var(--os-mono);
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--os-accent-ink);
 }
 .slash-preview {
   font-size: 12px;
-  color: var(--muted);
+  color: var(--os-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -458,120 +793,27 @@ body {
 .slash-empty {
   padding: 10px 12px;
   font-size: 12px;
-  color: var(--muted);
+  color: var(--os-muted);
 }
-.composer textarea {
-  width: 100%;
-  resize: none;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 8px 10px;
-  font: inherit;
-  color: var(--text);
-  background: var(--bg);
-  max-height: 160px;
-}
-.composer textarea:focus {
-  outline: 2px solid var(--accent);
-  border-color: var(--accent);
-}
-.autonomy-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 6px;
-}
-.autonomy-label {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-.segmented {
-  display: inline-flex;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  overflow: hidden;
-  background: var(--bg);
-}
-.seg {
-  appearance: none;
-  border: none;
-  background: transparent;
-  color: var(--muted);
-  font: inherit;
-  font-size: 12px;
-  padding: 4px 12px;
-  cursor: pointer;
-  border-right: 1px solid var(--border);
-}
-.seg:last-child {
-  border-right: none;
-}
-.seg:hover {
-  background: var(--accent-soft);
-  color: var(--text);
-}
-.seg.active {
-  background: var(--accent);
-  color: #fff;
-  font-weight: 600;
-}
-
-.composer-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 6px;
-}
-.context-hint {
-  font-size: 11px;
-  color: var(--muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 55%;
-}
-.site-chip {
-  border: none;
-  background: transparent;
-  font: inherit;
-  font-size: 11px;
-  padding: 3px 8px;
-  border-radius: 999px;
-  cursor: pointer;
-  text-align: left;
-}
-.site-chip:hover {
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-.site-chip .site-state {
-  font-weight: 600;
-}
-.site-chip .site-state.ok { color: #16a34a; }
-.site-chip .site-state.blocked { color: var(--danger); }
-.site-chip .site-state.warn { color: var(--warn); }
 
 .site-menu {
   position: absolute;
   bottom: 100%;
   left: 8px;
   margin-bottom: 4px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  box-shadow: 0 -4px 18px rgba(0, 0, 0, 0.14);
+  background: var(--os-surface);
+  border: 1px solid var(--os-line);
+  border-radius: var(--os-r);
+  box-shadow: var(--os-shadow-2);
   min-width: 230px;
   z-index: 25;
   padding: 4px;
 }
 .site-menu .sm-head {
+  font-family: var(--os-mono);
   font-size: 11px;
-  color: var(--muted);
+  color: var(--os-muted);
   padding: 6px 9px 4px;
-  font-family: ui-monospace, monospace;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -583,61 +825,22 @@ body {
   gap: 7px;
   border: none;
   background: transparent;
-  color: var(--text);
+  color: var(--os-ink);
   font: inherit;
   font-size: 13px;
   padding: 7px 9px;
-  border-radius: 7px;
+  border-radius: var(--os-r-sm);
   cursor: pointer;
   text-align: left;
 }
 .site-menu button:hover {
-  background: var(--accent-soft);
+  background: var(--os-accent-soft);
 }
 .site-menu button.current {
-  font-weight: 600;
-  color: var(--accent);
-}
-.composer-buttons {
-  display: flex;
-  gap: 6px;
-}
-.send-btn {
-  background: var(--accent);
-  color: #fff;
-  border: none;
-  border-radius: 8px;
-  padding: 7px 16px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.send-btn:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-.stop-btn {
-  background: transparent;
-  color: var(--danger);
-  border: 1px solid var(--danger);
-  border-radius: 8px;
-  padding: 7px 12px;
-  cursor: pointer;
+  font-weight: 650;
+  color: var(--os-accent-ink);
 }
 
 .warn {
-  color: var(--warn);
-}
-.warn a,
-.setup-link {
-  color: var(--accent);
-}
-a {
-  color: var(--accent);
-}
-
-/* The hidden attribute must beat any component display rule (e.g. the
-   status bar and recording banner are display:flex, which otherwise overrides
-   the UA's [hidden] { display:none }). */
-[hidden] {
-  display: none !important;
+  color: var(--os-warn-ink);
 }

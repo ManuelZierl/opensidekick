@@ -23,6 +23,22 @@ const permList = $("#perm-list");
 const noPerms = $("#no-perms");
 const toast = $("#toast");
 
+// One model test per provider card at a time, keyed by the card element so that
+// renderProviders() can stop everything it is about to detach. Declared up here
+// with the rest of the module state because renderProviders() and
+// addProviderFromPreset() both reach for it.
+const autoTests = new Map(); // card -> { timer, controller, runId, dots, fingerprint }
+const AUTO_TEST_DEBOUNCE_MS = 700;
+const DOT_INTERVAL_MS = 350;
+const MAX_DOTS = 6;
+const PROBE_LABELS = [["text", "Text"], ["tools", "Tools"], ["vision", "Vision"]];
+const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+// Extras (<details> cards) start closed so a fresh install reads as two short
+// bands. One that already holds something opens itself — once, so re-rendering
+// after an edit can't fight a user who just folded it away.
+const autoOpened = new Set();
+
 init();
 
 async function init() {
@@ -41,6 +57,7 @@ async function init() {
   $("#add-mcp").addEventListener("click", addMcp);
   wireSettings();
   wireDecisions();
+  wireRail();
   renderAll();
 
   // This page holds `config` in memory and persist() writes the WHOLE object.
@@ -58,6 +75,34 @@ async function init() {
     config = await loadConfig();
     renderAll();
   });
+}
+
+// The rail marks the section the reader is actually looking at. The topmost
+// visible section wins, so it can't flicker between two overlapping ones.
+function wireRail() {
+  const links = [...document.querySelectorAll(".rail a")];
+  const ids = links.map((a) => a.getAttribute("href").slice(1));
+  const sections = ids.map((id) => document.getElementById(id)).filter(Boolean);
+  const visible = new Set();
+  const io = new IntersectionObserver(
+    (entries) => {
+      for (const e of entries) {
+        if (e.isIntersecting) visible.add(e.target.id);
+        else visible.delete(e.target.id);
+      }
+      const active = sections.find((sec) => visible.has(sec.id));
+      for (const a of links) a.classList.toggle("active", !!active && a.getAttribute("href") === "#" + active.id);
+    },
+    { rootMargin: "-84px 0px -55% 0px" },
+  );
+  for (const sec of sections) io.observe(sec);
+}
+
+function openExtra(id, hasContent) {
+  const d = document.getElementById(id);
+  if (!d || !hasContent || autoOpened.has(id)) return;
+  autoOpened.add(id);
+  d.open = true;
 }
 
 function renderAll() {
@@ -98,9 +143,26 @@ function addProviderFromPreset() {
   presetSelect.value = "";
   persist();
   renderProviders();
+  // A local provider with a pre-filled model can be probed right away; a hosted
+  // one has nothing to probe with until its key is pasted.
+  const card = providerList.querySelector(`.provider[data-id="${provider.id}"]`);
+  if (card && provider.model && (provider.apiKey || isLocalBaseUrl(provider.baseUrl))) {
+    scheduleAutoTest(provider, card, { immediate: true, firstRun: true });
+  }
 }
 
 function renderProviders() {
+  // Every card is thrown away here, so stop the pending debounce timers, dot
+  // animations and in-flight probes first — an interval left behind would tick
+  // against a detached node forever. A run that was still in flight is started
+  // again on the rebuilt card below: an unrelated write from another surface
+  // (the side panel saving a workflow) must not swallow the user's test.
+  const wasTesting = [];
+  for (const [card, state] of autoTests) {
+    if (state.controller) wasTesting.push(card.dataset.id);
+    stopTest(card);
+  }
+  autoTests.clear();
   providerList.innerHTML = "";
   noProviders.hidden = config.providers.length > 0;
 
@@ -123,9 +185,12 @@ function renderProviders() {
       provider.baseUrl = baseUrl.value.trim();
       persist();
       // Whether this provider can lend its key to smart checks depends on the
-      // URL and the key, so section 8 has to be re-rendered here: persist()
+      // URL and the key, so Smart checks has to be re-rendered here: persist()
       // suppresses the storage.onChanged re-render for our own writes.
       renderDecisions();
+      // A verdict from the old endpoint says nothing about this one, so it is
+      // either replaced by a fresh run or cleared.
+      scheduleAutoTest(provider, node, { immediate: true });
     });
 
     const keyInput = node.querySelector(".api-key");
@@ -134,6 +199,8 @@ function renderProviders() {
       provider.apiKey = keyInput.value.trim();
       persist();
       renderDecisions();
+      // The key was the only thing the probes were waiting for.
+      if (node.querySelector(".model").value.trim()) scheduleAutoTest(provider, node, { immediate: true });
     });
     const keyLink = node.querySelector(".key-link");
     if (provider.keyUrl) {
@@ -148,10 +215,16 @@ function renderProviders() {
     modelInput.setAttribute("list", listId);
     modelInput.value = provider.model || "";
     fillDatalist(datalist, provider.models);
+    // Typing is debounced; committing a value (datalist pick, or a blur that
+    // changed it) tests at once. Either way one pick is one run: the pending
+    // timer is dropped, and a commit that repeats the configuration a run has
+    // already started is skipped (see startModelTest).
+    modelInput.addEventListener("input", () => scheduleAutoTest(provider, node));
     modelInput.addEventListener("change", () => {
       provider.model = modelInput.value.trim();
       if (config.activeProviderId === provider.id) config.activeModel = provider.model;
       persist();
+      scheduleAutoTest(provider, node, { immediate: true });
     });
 
     const fetchBtn = node.querySelector(".fetch-models");
@@ -159,12 +232,16 @@ function renderProviders() {
     fetchBtn.addEventListener("click", () => fetchModels(provider, fetchBtn, fetchStatus, datalist));
 
     const testBtn = node.querySelector(".test-model");
-    const testStatus = node.querySelector(".test-status");
-    testBtn.addEventListener("click", () => runModelTest(provider, modelInput, testBtn, testStatus));
+    testBtn.addEventListener("click", () => startModelTest(provider, node));
 
     node.querySelector(".delete-provider").addEventListener("click", () => removeProvider(provider.id));
 
     providerList.appendChild(node);
+  }
+  for (const id of wasTesting) {
+    const provider = config.providers.find((p) => p.id === id);
+    const card = providerList.querySelector(`.provider[data-id="${id}"]`);
+    if (provider && card) scheduleAutoTest(provider, card, { immediate: true });
   }
   // The smart-checks key source points at one of these, by id.
   renderDecisions();
@@ -191,7 +268,7 @@ function removeProvider(id) {
 async function fetchModels(provider, btn, status, datalist) {
   btn.disabled = true;
   status.textContent = "Fetching…";
-  status.style.color = "var(--muted)";
+  status.style.color = "var(--os-muted)";
   try {
     const models = await listModels(provider);
     provider.models = models;
@@ -200,30 +277,222 @@ async function fetchModels(provider, btn, status, datalist) {
     status.textContent = `Found ${models.length} models. Start typing to filter.`;
   } catch (e) {
     status.textContent = "Could not fetch models: " + (e.message || e);
-    status.style.color = "var(--danger)";
+    status.style.color = "var(--os-bad-ink)";
   } finally {
     btn.disabled = false;
   }
 }
 
-async function runModelTest(provider, modelInput, btn, statusEl) {
-  const model = (modelInput.value || provider.model || "").trim();
+function testState(card) {
+  let state = autoTests.get(card);
+  if (!state) {
+    state = { timer: null, controller: null, runId: 0, dots: null, fingerprint: "" };
+    autoTests.set(card, state);
+  }
+  return state;
+}
+
+function stopTest(card) {
+  const state = autoTests.get(card);
+  if (!state) return;
+  clearTimeout(state.timer);
+  clearInterval(state.dots);
+  state.timer = null;
+  state.dots = null;
+  if (state.controller) state.controller.abort();
+  state.controller = null;
+  // An aborted run can still have a probe resolving in the same tick, and it
+  // must not repaint over the status this just cleared — so its run id is
+  // retired here, not only when a replacement run claims the next one.
+  state.runId++;
+  state.fingerprint = "";
+}
+
+// What an automatic run is "for": the same three inputs twice over is the same
+// answer twice over, so the second run is dropped. Held in memory only — it
+// carries the key and is never rendered or logged.
+const testFingerprint = (provider, model) => JSON.stringify([model, provider.baseUrl || "", provider.apiKey || ""]);
+
+// Local models need no key, so a loopback base URL is testable the moment a
+// model id is there.
+function isLocalBaseUrl(url) {
+  try {
+    const host = new URL(url).hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
+    return host === "localhost" || host === "127.0.0.1" || host === "::1" || host.endsWith(".localhost");
+  } catch {
+    return false;
+  }
+}
+
+function hostOf(url) {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return "";
+  }
+}
+
+// A status line is only ever shown with something in it.
+function setStatus(statusEl, html) {
+  statusEl.innerHTML = html;
   statusEl.hidden = false;
+}
+
+function clearStatus(statusEl) {
+  statusEl.innerHTML = "";
+  statusEl.hidden = true;
+}
+
+// Provider error bodies sometimes echo the key back (401s like to), and these
+// lines now appear without anyone pressing a button — so nothing key-shaped
+// reaches the screen.
+function redactKeys(detail, apiKey) {
+  let s = String(detail ?? "");
+  if (apiKey && apiKey.length >= 8) s = s.split(apiKey).join("[key]");
+  return s.replace(/\b(?:sk|or|pk|gsk)-[A-Za-z0-9_-]{8,}/g, "[key]");
+}
+
+const isNetworkFail = (detail) => /failed to fetch|load failed|network ?error|connection refused|econnrefused/i.test(String(detail || ""));
+
+// Picking a model is the moment the user wants to know whether it works, so the
+// probes run then and there instead of waiting for a button. Base URL and key
+// are read from the provider (both commit on blur, before the model is touched);
+// the model comes from the input, which is still mid-edit.
+function scheduleAutoTest(provider, card, { immediate = false, firstRun = false } = {}) {
+  const statusEl = card.querySelector(".test-status");
+  const model = card.querySelector(".model").value.trim();
+  const state = testState(card);
+  clearTimeout(state.timer);
+  state.timer = null;
+
   if (!model) {
-    statusEl.innerHTML = `<span class="test-line fail">Enter a model id first.</span>`;
+    stopTest(card);
+    clearStatus(statusEl);
+    return;
+  }
+  if (!provider.baseUrl) return; // the Test button is where that gets explained
+  if (!provider.apiKey && !isLocalBaseUrl(provider.baseUrl)) {
+    stopTest(card);
+    setStatus(statusEl, `<span class="test-line muted">Add your API key and the test will run automatically.</span>`);
+    return;
+  }
+  if (immediate) {
+    startModelTest(provider, card, { auto: true, firstRun });
+    return;
+  }
+  // Mid-typing, only a model id the provider actually lists is worth three live
+  // requests: a pause longer than the debounce after "gpt-" would otherwise
+  // probe a model that doesn't exist. Anything else waits for the commit.
+  if (!(provider.models || []).includes(model)) {
+    // Whatever verdict is on screen was for a different model id, and the field
+    // no longer says that — drop it rather than let it describe the new one.
+    if (!state.controller && state.fingerprint && state.fingerprint !== testFingerprint(provider, model)) {
+      state.fingerprint = "";
+      clearStatus(statusEl);
+    }
+    return;
+  }
+  state.timer = setTimeout(() => startModelTest(provider, card, { auto: true }), AUTO_TEST_DEBOUNCE_MS);
+}
+
+// The one entry point for both the Test button and the automatic runs: cancels
+// whatever that card was doing and claims the card's next run id.
+function startModelTest(provider, card, { auto = false, firstRun = false } = {}) {
+  const state = testState(card);
+  const model = card.querySelector(".model").value.trim();
+  const fingerprint = testFingerprint(provider, model);
+  // Typing a model id and then blurring the field fires both the debounced
+  // "input" run and the commit "change" run for one and the same model — the
+  // second is the same three requests for the same answer, so it is dropped.
+  // The Test button is the deliberate re-run and always goes through.
+  if (auto && fingerprint === state.fingerprint) return;
+  clearTimeout(state.timer);
+  state.timer = null;
+  if (state.controller) state.controller.abort();
+  state.controller = new AbortController();
+  state.fingerprint = fingerprint;
+  return runModelTest(provider, card.querySelector(".model"), card.querySelector(".test-model"), card.querySelector(".test-status"), {
+    auto,
+    firstRun,
+    signal: state.controller.signal,
+    runId: ++state.runId,
+  });
+}
+
+async function runModelTest(provider, modelInput, btn, statusEl, opts = {}) {
+  const { auto = false, firstRun = false, signal, runId } = opts;
+  const state = testState(statusEl.closest(".provider"));
+  // A cancelled run can still have a probe in flight; everything it would
+  // render or re-enable is dropped once the card has moved on.
+  const current = () => runId === undefined || state.runId === runId;
+  const model = (modelInput.value || provider.model || "").trim();
+  if (!model) {
+    if (!auto) setStatus(statusEl, `<span class="test-line fail">Enter a model id first.</span>`);
     return;
   }
   if (!provider.baseUrl) {
-    statusEl.innerHTML = `<span class="test-line fail">Set the provider's Base URL first.</span>`;
+    if (!auto) setStatus(statusEl, `<span class="test-line fail">Set the provider's Base URL first.</span>`);
     return;
   }
   btn.disabled = true;
-  statusEl.innerHTML = `<span class="test-line muted">Testing <code>${escapeHtml(model)}</code> — text, tools, vision…</span>`;
+
+  const icon = { ok: "✓", warn: "⚠", fail: "✗" };
+  const line = (label, res) =>
+    `<span class="test-line ${res.status}">${icon[res.status]} <strong>${label}</strong> — ${escapeHtml(redactKeys(res.detail, provider.apiKey))}</span>`;
+  // The model id stays on screen: an automatic run nobody asked for has to say
+  // which model the ticks belong to — and, while it is running, where the key
+  // is going, since no button was pressed to authorise that.
+  const host = hostOf(provider.baseUrl);
+  const nameLine = (verb, withHost) =>
+    `<span class="test-line muted">${verb} <code>${escapeHtml(model)}</code>${withHost && host ? ` at ${escapeHtml(host)}` : ""}</span>`;
+  let stage = "text";
+  let dots = 1;
+  let doneLines = [];
+  let dotsEl = null;
+  const dotText = () => (reducedMotion.matches ? "…" : ".".repeat(dots));
+  // The block is rewritten only when a probe finishes; in between, the ticker
+  // writes into the dot span alone, so the role="status" region isn't re-read
+  // to a screen reader three times a second.
+  const paint = () => {
+    if (!current()) return;
+    setStatus(
+      statusEl,
+      [
+        nameLine("Testing", true),
+        ...doneLines,
+        `<span class="test-line muted test-progress">… testing ${stage} <span class="dots" aria-hidden="true">${dotText()}</span></span>`,
+      ].join(""),
+    );
+    dotsEl = statusEl.querySelector(".test-progress .dots");
+  };
+  paint();
+  clearInterval(state.dots);
+  const ticker = setInterval(() => {
+    if (!current()) return;
+    dots = dots >= MAX_DOTS ? 1 : dots + 1;
+    if (dotsEl) dotsEl.textContent = dotText(); // frozen at "…" under reduced motion
+  }, DOT_INTERVAL_MS);
+  state.dots = ticker;
+
   try {
-    const r = await testModel({ ...provider, model }, model);
-    const icon = { ok: "✓", warn: "⚠", fail: "✗" };
-    const line = (label, res) =>
-      `<span class="test-line ${res.status}">${icon[res.status]} <strong>${label}</strong> — ${escapeHtml(res.detail)}</span>`;
+    const r = await testModel({ ...provider, model }, model, {
+      signal,
+      onProgress: (s, results) => {
+        if (s === "done" || !current()) return;
+        stage = s;
+        dots = 1;
+        doneLines = PROBE_LABELS.filter(([key]) => results[key]).map(([key, label]) => line(label, results[key]));
+        paint();
+      },
+    });
+    if (!current() || r.aborted) return; // the next run has already taken over
+    // A local server that isn't up yet is the overwhelmingly likely reason a
+    // just-added preset can't be reached — say so instead of reporting the
+    // model as incapable of calling tools.
+    if (firstRun && r.text.status === "fail" && isNetworkFail(r.text.detail)) {
+      setStatus(statusEl, `<span class="test-line warn">Couldn't reach ${escapeHtml(host)} — start your local server and press Test.</span>`);
+      return;
+    }
     let verdict = "";
     if (r.tools.status === "ok" && (r.vision.status === "ok" || r.vision.status === "warn")) {
       verdict = `<span class="test-line ok">This model can drive OpenSidekick.${r.vision.status === "ok" ? " Vision works too." : ""}</span>`;
@@ -232,11 +501,16 @@ async function runModelTest(provider, modelInput, btn, statusEl) {
     } else if (r.vision.status === "fail") {
       verdict = `<span class="test-line warn">Tools work, but this model can't see images. Fine for text tasks; turn off Vision or pick a multimodal model for image work.</span>`;
     }
-    statusEl.innerHTML = [line("Text", r.text), line("Tools", r.tools), line("Vision", r.vision), verdict].join("");
+    setStatus(statusEl, [nameLine("Tested", false), line("Text", r.text), line("Tools", r.tools), line("Vision", r.vision), verdict].join(""));
   } catch (e) {
-    statusEl.innerHTML = `<span class="test-line fail">Test failed: ${escapeHtml(String(e.message || e))}</span>`;
+    if (current()) setStatus(statusEl, `<span class="test-line fail">Test failed: ${escapeHtml(redactKeys(e.message || e, provider.apiKey))}</span>`);
   } finally {
-    btn.disabled = false;
+    clearInterval(ticker);
+    if (state.dots === ticker) state.dots = null;
+    if (current()) {
+      btn.disabled = false;
+      if (state.controller && state.controller.signal === signal) state.controller = null;
+    }
   }
 }
 
@@ -376,6 +650,7 @@ function renderDecisions() {
   const d = decisions();
   const source = d.source === "typesafe" ? "typesafe" : "openrouter";
   $("#dec-enabled").checked = !!d.enabled;
+  openExtra("smart-checks", !!d.enabled);
   const sourceRadio = document.querySelector(`input[name="dec-source"][value="${source}"]`);
   if (sourceRadio) sourceRadio.checked = true;
 
@@ -502,6 +777,7 @@ function renderPrompts() {
   const list = $("#prompt-list");
   list.innerHTML = "";
   $("#no-prompts").hidden = (config.prompts || []).length > 0;
+  openExtra("sec-prompts", (config.prompts || []).length > 0);
   for (const p of config.prompts) {
     const row = document.createElement("div");
     row.className = "prompt-item";
@@ -548,6 +824,7 @@ function renderScheduled() {
   const list = $("#sched-list");
   list.innerHTML = "";
   $("#no-sched").hidden = (config.scheduledTasks || []).length > 0;
+  openExtra("sec-sched", (config.scheduledTasks || []).length > 0);
   for (const t of config.scheduledTasks) {
     const row = document.createElement("div");
     row.className = "sched-item";
@@ -618,6 +895,7 @@ function renderWorkflows() {
   const list = $("#wf-list");
   list.innerHTML = "";
   $("#no-wf").hidden = (config.workflows || []).length > 0;
+  openExtra("sec-workflows", (config.workflows || []).length > 0);
   for (const w of config.workflows) {
     const row = document.createElement("div");
     row.className = "prompt-item";
@@ -652,6 +930,7 @@ function renderMcp() {
   const list = $("#mcp-list");
   list.innerHTML = "";
   $("#no-mcp").hidden = (config.mcpServers || []).length > 0;
+  openExtra("sec-mcp", (config.mcpServers || []).length > 0);
   for (const m of config.mcpServers) {
     const row = document.createElement("div");
     row.className = "sched-item";
@@ -694,21 +973,21 @@ function addMcp() {
 async function testMcp(server, statusEl, btn) {
   if (!server.url) {
     statusEl.textContent = "Enter a server URL first.";
-    statusEl.style.color = "var(--danger)";
+    statusEl.style.color = "var(--os-bad-ink)";
     return;
   }
   btn.disabled = true;
-  statusEl.style.color = "var(--muted)";
+  statusEl.style.color = "var(--os-muted)";
   statusEl.textContent = "Connecting…";
   try {
     const session = await connectServer(server);
     const tools = await listTools(server, session);
     const names = tools.map((t) => t.name).slice(0, 8).join(", ");
     statusEl.textContent = `Connected — ${tools.length} tool${tools.length === 1 ? "" : "s"}${names ? ": " + names : ""}.`;
-    statusEl.style.color = "var(--good, #157a4d)";
+    statusEl.style.color = "var(--os-good-ink)";
   } catch (e) {
     statusEl.textContent = "Failed: " + (e.message || e);
-    statusEl.style.color = "var(--danger)";
+    statusEl.style.color = "var(--os-bad-ink)";
   } finally {
     btn.disabled = false;
   }
@@ -729,7 +1008,7 @@ async function persist() {
   }
   toast.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (toast.hidden = true), 1200);
+  toastTimer = setTimeout(() => (toast.hidden = true), 1600);
 }
 
 function clampInt(v, min, max, fallback) {

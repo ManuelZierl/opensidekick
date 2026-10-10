@@ -1,0 +1,353 @@
+/* OpenSidekick shared UI layer ----------------------------------------------
+   One token set for every surface we own: the side panel, the settings page and
+   the in-page overlay. The values are lifted from the opensidekick.app landing
+   page so the extension, the store screenshots and the website read as one
+   product instead of three palettes.
+
+   Linked as a second stylesheet BEFORE the page stylesheet (never @import,
+   which serialises the fetch). Page stylesheets may only add layout and
+   page-specific components; colour, radius, shadow, type and focus live here.
+
+   Every pair below is a measured contrast pair: `--os-x` is the fill used for
+   dots, rules and borders, `--os-x-ink` is the only value allowed for text on
+   the page surface, and `--os-x-soft` is the chip background that `-ink` is
+   also legible on. All text pairs clear WCAG AA (>= 4.5:1) in both themes.
+   -------------------------------------------------------------------------- */
+
+:root {
+  /* Surfaces */
+  --os-paper: #f6f7f9;
+  --os-surface: #ffffff;
+  --os-surface-2: #fbfbfe;
+  --os-line: #e5e6ec;
+  --os-line-2: #d3d4dd;
+
+  /* Text */
+  --os-ink: #15151a;
+  --os-ink-soft: #3c3c46;
+  --os-muted: #6c6d7a;
+
+  /* Brand */
+  --os-accent: #4f46e5;
+  --os-accent-ink: #3a30b8;
+  --os-accent-soft: #eef0ff;
+  --os-accent-hover: #453dcf;
+  /* Text/icon colour ON the accent fill. White fails AA on the lighter dark
+     accent (3.24:1), so dark mode flips it. */
+  --os-on-accent: #ffffff;
+
+  /* Semantics */
+  --os-good: #12855a;
+  --os-good-ink: #0f7450;
+  --os-good-soft: #e6f4ee;
+  --os-warn: #b8780a;
+  --os-warn-ink: #8a5a00;
+  --os-warn-soft: #fdf3e2;
+  --os-bad: #c2415a;
+  --os-bad-ink: #a3344c;
+  --os-bad-soft: #fdecef;
+
+  /* Shape */
+  --os-r-sm: 7px;
+  --os-r: 10px;
+  --os-r-lg: 14px;
+  --os-r-pill: 999px;
+
+  /* Space */
+  --os-1: 4px;
+  --os-2: 8px;
+  --os-3: 12px;
+  --os-4: 16px;
+  --os-5: 20px;
+  --os-6: 24px;
+  --os-8: 32px;
+
+  /* Depth */
+  --os-shadow-1: 0 1px 2px rgba(21, 21, 26, 0.06);
+  --os-shadow-2: 0 8px 24px -12px rgba(30, 27, 90, 0.28);
+  --os-shadow-3: 0 24px 60px -24px rgba(30, 27, 90, 0.4);
+
+  /* Type */
+  --os-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  --os-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+
+  /* One focus treatment everywhere: a surface-coloured gap, then the accent. */
+  --os-focus: 0 0 0 2px var(--os-surface), 0 0 0 4px var(--os-accent);
+
+  color-scheme: light dark;
+}
+
+/* Dark is declared twice on purpose: once for the system preference (skipped
+   when a future toggle has pinned light) and once for an explicit
+   [data-theme="dark"], so the toggle wins in both directions. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --os-paper: #131316;
+    --os-surface: #1b1b1f;
+    --os-surface-2: #232329;
+    --os-line: #2e2e35;
+    --os-line-2: #3c3c45;
+
+    --os-ink: #ececed;
+    --os-ink-soft: #c3c3cb;
+    --os-muted: #9596a1;
+
+    --os-accent: #8b7dff;
+    --os-accent-ink: #b3a9ff;
+    --os-accent-soft: #272544;
+    --os-accent-hover: #9c90ff;
+    --os-on-accent: #15151a;
+
+    --os-good: #4ade80;
+    --os-good-ink: #4ade80;
+    --os-good-soft: #122a1f;
+    --os-warn: #f0b24a;
+    --os-warn-ink: #f0b24a;
+    --os-warn-soft: #2e2411;
+    --os-bad: #ff8097;
+    --os-bad-ink: #ff8097;
+    --os-bad-soft: #331a20;
+
+    --os-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.5);
+    --os-shadow-2: 0 8px 24px -12px rgba(0, 0, 0, 0.7);
+    --os-shadow-3: 0 24px 60px -24px rgba(0, 0, 0, 0.8);
+  }
+}
+
+:root[data-theme="dark"] {
+  --os-paper: #131316;
+  --os-surface: #1b1b1f;
+  --os-surface-2: #232329;
+  --os-line: #2e2e35;
+  --os-line-2: #3c3c45;
+
+  --os-ink: #ececed;
+  --os-ink-soft: #c3c3cb;
+  --os-muted: #9596a1;
+
+  --os-accent: #8b7dff;
+  --os-accent-ink: #b3a9ff;
+  --os-accent-soft: #272544;
+  --os-accent-hover: #9c90ff;
+  --os-on-accent: #15151a;
+
+  --os-good: #4ade80;
+  --os-good-ink: #4ade80;
+  --os-good-soft: #122a1f;
+  --os-warn: #f0b24a;
+  --os-warn-ink: #f0b24a;
+  --os-warn-soft: #2e2411;
+  --os-bad: #ff8097;
+  --os-bad-ink: #ff8097;
+  --os-bad-soft: #331a20;
+
+  --os-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --os-shadow-2: 0 8px 24px -12px rgba(0, 0, 0, 0.7);
+  --os-shadow-3: 0 24px 60px -24px rgba(0, 0, 0, 0.8);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: var(--os-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Type ramp -------------------------------------------------------------- */
+
+.os-display {
+  font-size: 20px;
+  line-height: 1.15;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+.os-title {
+  font-size: 16px;
+  line-height: 1.25;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+.eyebrow {
+  font-family: var(--os-mono);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--os-accent-ink);
+}
+.mono {
+  font-family: var(--os-mono);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* Icons: an inline <svg> sprite is the only CSP-safe, no-fetch way to get real
+   icons into an MV3 page. 16px glyph in a 30px target, stroked in currentColor
+   so hover/active states need no second asset. */
+.ic {
+  width: 16px;
+  height: 16px;
+  display: block;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Primitives ------------------------------------------------------------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--os-2);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 650;
+  line-height: 1.2;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  padding: 9px 15px;
+  background: var(--os-accent);
+  color: var(--os-on-accent);
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.btn:hover:not(:disabled) {
+  background: var(--os-accent-hover);
+}
+.btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.btn-ghost {
+  background: var(--os-surface);
+  color: var(--os-ink);
+  border-color: var(--os-line-2);
+}
+.btn-ghost:hover:not(:disabled) {
+  background: var(--os-surface);
+  border-color: var(--os-accent);
+  color: var(--os-accent-ink);
+}
+
+.btn-danger {
+  background: transparent;
+  color: var(--os-bad-ink);
+  border-color: var(--os-bad);
+}
+.btn-danger:hover:not(:disabled) {
+  background: var(--os-bad-soft);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  line-height: 1.5;
+  border-radius: var(--os-r-pill);
+  padding: 2px 9px;
+  background: var(--os-accent-soft);
+  color: var(--os-accent-ink);
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.chip.good {
+  background: var(--os-good-soft);
+  color: var(--os-good-ink);
+}
+.chip.warn {
+  background: var(--os-warn-soft);
+  color: var(--os-warn-ink);
+}
+.chip.bad {
+  background: var(--os-bad-soft);
+  color: var(--os-bad-ink);
+}
+.chip.mono {
+  font-family: var(--os-mono);
+  font-size: 11px;
+}
+
+.card {
+  background: var(--os-surface);
+  border: 1px solid var(--os-line);
+  border-radius: var(--os-r-lg);
+  padding: 18px;
+}
+
+.field {
+  margin-bottom: var(--os-3);
+}
+.field > label:not(.radio) {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 5px;
+  color: var(--os-ink);
+}
+
+/* Every text-ish control, including the ones rendered without an explicit
+   type attribute (a bare <input> is type=text but matches no [type] selector,
+   which is why a few fields used to render as raw UA boxes). */
+.input,
+.os-form select,
+.os-form textarea,
+.os-form input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]) {
+  width: 100%;
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 1px solid var(--os-line);
+  border-radius: 8px;
+  background: var(--os-surface-2);
+  color: var(--os-ink);
+  font: inherit;
+}
+.input::placeholder,
+.os-form textarea::placeholder {
+  color: var(--os-muted);
+}
+.input:hover,
+.os-form select:hover,
+.os-form input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):hover {
+  border-color: var(--os-line-2);
+}
+
+a {
+  color: var(--os-accent-ink);
+  text-underline-offset: 2px;
+}
+
+/* One focus treatment, keyboard only. `outline:none` is safe here because the
+   box-shadow ring replaces it; there is no state without a visible ring. */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--os-focus);
+}
+
+/* The hidden attribute must beat any component display rule (several of ours
+   are display:flex, which otherwise overrides the UA's [hidden] rule). */
+[hidden] {
+  display: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

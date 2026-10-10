@@ -24,6 +24,7 @@ const els = {
   wfMenu: document.getElementById("wf-menu"),
   autonomy: document.getElementById("autonomy"),
   siteMenu: document.getElementById("site-menu"),
+  jumpLatest: document.getElementById("jump-latest"),
 };
 
 let savedPrompts = [];
@@ -42,7 +43,8 @@ let running = false;
 // first message after reopening silently wipe the restored conversation.)
 let newChatPending = false;
 let current = null; // { el, raw } assistant bubble being streamed
-let pendingTools = []; // tool-event elements awaiting completion
+let pendingTools = []; // log rows awaiting their matching tool_end
+let logGroup = null; // the open <details> run of consecutive tool rows
 
 init();
 
@@ -90,6 +92,11 @@ async function init() {
     /* tabs events unavailable — chip still refreshes on open/submit */
   }
 
+  els.messages.addEventListener("scroll", onMessagesScroll, { passive: true });
+  els.jumpLatest.addEventListener("click", () => {
+    pinned = true;
+    scroll();
+  });
   els.composer.addEventListener("submit", onSubmit);
   els.input.addEventListener("keydown", onInputKeydown);
   els.input.addEventListener("input", () => {
@@ -171,9 +178,11 @@ async function refreshConfigured() {
 
 // Reflect the active approval mode in the segmented control.
 function setAutonomyUI(mode) {
-  els.autonomy
-    .querySelectorAll(".seg")
-    .forEach((b) => b.classList.toggle("active", b.dataset.mode === mode));
+  els.autonomy.querySelectorAll(".seg").forEach((b) => {
+    const on = b.dataset.mode === mode;
+    b.classList.toggle("active", on);
+    b.setAttribute("aria-pressed", on ? "true" : "false");
+  });
 }
 
 // Persist the chosen approval mode without touching the rest of the config.
@@ -218,8 +227,8 @@ async function refreshContextHint() {
     const rule = (cfg.sitePermissions || {})[url.origin];
     const allowlist = cfg.settings && cfg.settings.siteAccess === "allowlist";
     let state = "";
-    if (rule === "allow") state = '<span class="site-state ok">✓ allowed</span>';
-    else if (rule === "block") state = '<span class="site-state blocked">⛔ blocked</span>';
+    if (rule === "allow") state = '<span class="site-state ok">allowed</span>';
+    else if (rule === "block") state = '<span class="site-state blocked">blocked</span>';
     else if (allowlist) state = '<span class="site-state warn">not allowed yet</span>';
     els.contextHint.innerHTML = `On: ${escapeHtml(url.hostname)}${state ? " · " + state : ""}`;
   } catch {
@@ -251,13 +260,13 @@ async function renderSiteMenu() {
   const rule = (cfg.sitePermissions || {})[currentSiteOrigin] || null;
   const item = (value, label, icon) => {
     const current = value === "clear" ? rule === null : rule === value;
-    return `<button data-rule="${value}" class="${current ? "current" : ""}">${icon} ${label}${current ? " — current" : ""}</button>`;
+    return `<button data-rule="${value}" class="${current ? "current" : ""}">${ic(icon)} ${label}${current ? " — current" : ""}</button>`;
   };
   els.siteMenu.innerHTML = `
     <div class="sm-head">${escapeHtml(currentSiteOrigin)}</div>
-    ${item("allow", "Trust — always allow", "✓")}
-    ${item("block", "Block this site", "⛔")}
-    ${item("clear", "Clear rule (default)", "○")}`;
+    ${item("allow", "Trust — always allow", "shield")}
+    ${item("block", "Block this site", "ban")}
+    ${item("clear", "Clear rule (default)", "dot")}`;
   els.siteMenu.querySelectorAll("button").forEach((btn) =>
     btn.addEventListener("click", async () => {
       await setSiteRule(currentSiteOrigin, btn.dataset.rule);
@@ -278,7 +287,10 @@ async function setSiteRule(origin, rule) {
     if (rule === "clear") delete cfg.sitePermissions[origin];
     else cfg.sitePermissions[origin] = rule;
     await chrome.storage.local.set({ [STORAGE_KEY]: cfg });
-    addNote(rule === "allow" ? `✓ Trusted ${origin}` : rule === "block" ? `⛔ Blocked ${origin}` : `Cleared the rule for ${origin}`);
+    addNote(
+      rule === "allow" ? `Trusted ${origin}` : rule === "block" ? `Blocked ${origin}` : `Cleared the rule for ${origin}`,
+      rule === "allow" ? "shield" : rule === "block" ? "ban" : "dot",
+    );
   } catch (e) {
     addError("Couldn't save the site rule: " + (e.message || e));
   }
@@ -311,11 +323,12 @@ function onSubmit(e) {
 function newChat() {
   if (running) send({ type: MSG.STOP_TASK });
   send({ type: MSG.NEW_CHAT }); // clear the worker's (persisted) conversation now
-  els.messages.querySelectorAll(".msg, .tool-event, .perm-card, .thinking").forEach((n) => n.remove());
+  els.messages.querySelectorAll(".msg, .log, .note, .alert, .perm-card, .thinking").forEach((n) => n.remove());
   els.empty.hidden = false;
   newChatPending = true;
   current = null;
   pendingTools = [];
+  logGroup = null;
 }
 
 // -------------------------------------------------------------------------
@@ -358,7 +371,7 @@ function handleEvent(ev) {
       addFinish(ev.summary);
       break;
     case "mcp_connected":
-      addNote(`🔌 Connected to MCP server “${ev.server}” (${ev.count} tool${ev.count === 1 ? "" : "s"})`);
+      addNote(`Connected to MCP server “${ev.server}” (${ev.count} tool${ev.count === 1 ? "" : "s"})`, "dot");
       break;
     case "warning":
       addWarning(ev.text);
@@ -368,7 +381,7 @@ function handleEvent(ev) {
       setRunning(false);
       break;
     case "aborted":
-      addNote("⏹ Stopped.");
+      addNote("Stopped.", "stop");
       setRunning(false);
       break;
     case "done":
@@ -392,6 +405,7 @@ function setRunning(v) {
 // Rendering
 // -------------------------------------------------------------------------
 function addUserMessage(text) {
+  sealLog();
   const el = document.createElement("div");
   el.className = "msg user";
   el.textContent = text;
@@ -400,6 +414,7 @@ function addUserMessage(text) {
 }
 
 function startAssistant() {
+  sealLog();
   const el = document.createElement("div");
   el.className = "msg assistant";
   el.innerHTML = '<span class="thinking"><span class="dot-pulse"></span>Thinking…</span>';
@@ -432,29 +447,105 @@ function endAssistant(content) {
   scroll();
 }
 
-function addToolStart(name, args) {
-  const el = document.createElement("div");
-  el.className = "tool-event";
-  el.innerHTML = `<span class="tool-name">${escapeHtml(name)}</span><span class="tool-detail">${escapeHtml(argHint(name, args))} · running…</span>`;
+// -------------------------------------------------------------------------
+// Tool log
+//
+// A run of consecutive tool calls renders as ONE collapsible group — a single
+// rule with a status dot per action — rather than a stack of bordered pills,
+// which at 380px turned a ten-step task into fourteen outlined rectangles.
+// Anything else in the transcript (prose, a permission card, an alert) seals
+// the group, so the log's structure mirrors the conversation's.
+// -------------------------------------------------------------------------
+function openLog() {
+  if (logGroup && els.messages.lastElementChild === logGroup.el) return logGroup;
+  const el = document.createElement("details");
+  el.className = "log";
+  el.open = true;
+  el.innerHTML =
+    `<summary class="log-head">${ic("chevron-down")}<span class="log-sum"></span></summary>` +
+    `<div class="log-rows"></div>`;
   els.messages.appendChild(el);
-  pendingTools.push({ name, el });
+  logGroup = {
+    el,
+    rows: el.querySelector(".log-rows"),
+    sum: el.querySelector(".log-sum"),
+    count: 0,
+    hosts: new Set(),
+  };
+  return logGroup;
+}
+
+// A finished run of three or more actions collapses to its one-line header: by
+// then the answer below it is what the user actually wants to read.
+function sealLog() {
+  if (logGroup && logGroup.count >= 3) logGroup.el.open = false;
+  logGroup = null;
+}
+
+function logSummary(g) {
+  const host = g.hosts.size === 1 ? [...g.hosts][0] : "";
+  g.sum.textContent = `${g.count} action${g.count === 1 ? "" : "s"}${host ? " on " + host : ""}`;
+}
+
+function addToolStart(name, args) {
+  const g = openLog();
+  g.count += 1;
+  const host = eventHost(args);
+  if (host) g.hosts.add(host);
+  logSummary(g);
+  const row = document.createElement("div");
+  row.className = "log-row running";
+  row.innerHTML = logRow(name, argHint(name, args), "");
+  g.rows.appendChild(row);
+  pendingTools.push({ name, el: row, t0: performance.now() });
   scroll();
 }
 
 function addToolEnd(name, ok, summary) {
   const pending = pendingTools.shift();
-  const el = pending ? pending.el : document.createElement("div");
-  if (!pending) {
-    el.className = "tool-event";
-    els.messages.appendChild(el);
+  let row = pending && pending.el;
+  if (!row) {
+    const g = openLog();
+    g.count += 1;
+    logSummary(g);
+    row = document.createElement("div");
+    g.rows.appendChild(row);
   }
-  el.classList.toggle("err", !ok);
-  const icon = ok ? "✓" : "✕";
-  el.innerHTML = `<span>${icon}</span><span class="tool-name">${escapeHtml(name)}</span><span class="tool-detail">${escapeHtml(summary || "")}</span>`;
+  row.className = "log-row " + (ok ? "ok" : "err");
+  row.innerHTML = logRow(name, summary || "", pending ? fmtDur(performance.now() - pending.t0) : "");
   scroll();
 }
 
+function logRow(name, detail, dur) {
+  return (
+    `<span class="log-dot"></span><span class="tool-name">${escapeHtml(name)}</span>` +
+    `<span class="tool-detail" title="${escapeHtml(detail)}">${escapeHtml(detail)}</span>` +
+    `<span class="log-dur">${escapeHtml(dur)}</span>`
+  );
+}
+
+function fmtDur(ms) {
+  return ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(1)}s`;
+}
+
+// Which site an action happened on — for the group header ("6 actions on
+// github.com"). Falls back to the tab the panel is attached to.
+function eventHost(args) {
+  try {
+    if (args && args.url) return new URL(args.url).hostname;
+  } catch {
+    /* not a URL */
+  }
+  try {
+    if (currentSiteOrigin) return new URL(currentSiteOrigin).hostname;
+  } catch {
+    /* ignore */
+  }
+  return "";
+}
+
 function addFinish(summary) {
+  sealLog();
   const el = document.createElement("div");
   el.className = "msg assistant";
   el.innerHTML = renderMarkdown(summary);
@@ -463,30 +554,34 @@ function addFinish(summary) {
 }
 
 function addError(text) {
+  sealLog();
   const el = document.createElement("div");
-  el.className = "tool-event err";
-  el.innerHTML = `<span>⚠</span><span>${escapeHtml(text)}</span>`;
+  el.className = "alert bad";
+  el.innerHTML = `${ic("alert")}<span>${escapeHtml(text)}</span>`;
   els.messages.appendChild(el);
   scroll();
 }
 
 function addWarning(text) {
+  sealLog();
   const el = document.createElement("div");
-  el.className = "tool-event warn";
-  el.innerHTML = `<span>🛡️</span><span>${escapeHtml(text)}</span>`;
+  el.className = "alert warn";
+  el.innerHTML = `${ic("shield")}<span>${escapeHtml(text)}</span>`;
   els.messages.appendChild(el);
   scroll();
 }
 
-function addNote(text) {
+function addNote(text, icon) {
+  sealLog();
   const el = document.createElement("div");
-  el.className = "tool-event";
-  el.textContent = text;
+  el.className = "note";
+  el.innerHTML = `${icon ? ic(icon) : ""}<span>${escapeHtml(text)}</span>`;
   els.messages.appendChild(el);
   scroll();
 }
 
 function showPlan(req) {
+  sealLog();
   const plan = req.plan || {};
   const el = document.createElement("div");
   el.className = "perm-card plan-card";
@@ -506,7 +601,7 @@ function showPlan(req) {
       el.querySelectorAll("button").forEach((b) => (b.disabled = true));
       const approved = btn.dataset.approved === "1";
       send({ type: MSG.PLAN_RESPONSE, id: req.id, approved });
-      el.querySelector(".perm-buttons").outerHTML = `<p style="margin:0;font-size:12px;color:var(--muted)">${approved ? "Approved." : "Declined."}</p>`;
+      el.querySelector(".perm-buttons").outerHTML = `<p class="muted-note">${approved ? "Approved." : "Declined."}</p>`;
     }),
   );
   els.messages.appendChild(el);
@@ -514,6 +609,7 @@ function showPlan(req) {
 }
 
 function showPermission(req) {
+  sealLog();
   const el = document.createElement("div");
   el.className = "perm-card" + (req.sensitive ? " sensitive" : "");
   const action = describeAction(req.toolName, req.args);
@@ -523,8 +619,8 @@ function showPermission(req) {
     ? "Allow MCP tool?"
     : req.sensitive
       ? req.why
-        ? "⚠ Confirm this action?"
-        : "⚠ Sensitive site"
+        ? "Confirm this action?"
+        : "Sensitive site"
       : req.newSite
         ? "New site — trust it?"
         : "Allow action?";
@@ -537,7 +633,7 @@ function showPermission(req) {
   el.innerHTML = `
     <h3>${title}</h3>
     <p>${intro}</p>
-    ${req.why ? `<p style="font-size:12px;color:var(--muted)">${escapeHtml(req.why)}.</p>` : ""}
+    ${req.why ? `<p class="muted-note">${escapeHtml(req.why)}.</p>` : ""}
     <div class="perm-buttons">
       <button class="primary" data-choice="once">Allow once</button>
       ${req.sensitive ? "" : `<button data-choice="always">${alsoLabel}</button>`}
@@ -549,7 +645,7 @@ function showPermission(req) {
       const choice = btn.dataset.choice;
       send({ type: MSG.PERMISSION_RESPONSE, id: req.id, choice });
       el.querySelector(".perm-buttons").outerHTML =
-        `<p style="margin:0;font-size:12px;color:var(--muted)">${choice === "decline" ? "Declined." : "Allowed."}</p>`;
+        `<p class="muted-note">${choice === "decline" ? "Declined." : "Allowed."}</p>`;
     }),
   );
   els.messages.appendChild(el);
@@ -819,6 +915,7 @@ function updateRecBanner() {
 }
 
 function showSaveWorkflow(steps, startUrl) {
+  sealLog();
   // Park the steps in session storage until the user decides — otherwise
   // closing the panel before clicking Save silently loses the recording.
   chrome.storage.session.set({ [SESSION_PENDING_WF_KEY]: { steps, startUrl } }).catch(() => {});
@@ -828,7 +925,7 @@ function showSaveWorkflow(steps, startUrl) {
   el.innerHTML = `
     <h3>Save this workflow?</h3>
     <ol class="plan-steps">${list}</ol>
-    <input id="wf-name" placeholder="Name (e.g. Book a meeting room)" style="width:100%;padding:7px 9px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font:inherit;margin-bottom:8px" />
+    <input id="wf-name" class="wf-name-input" placeholder="Name (e.g. Book a meeting room)" />
     <div class="perm-buttons"><button class="primary" data-save="1">Save</button><button data-save="0">Discard</button></div>`;
   el.querySelectorAll("button").forEach((btn) =>
     btn.addEventListener("click", async () => {
@@ -836,7 +933,7 @@ function showSaveWorkflow(steps, startUrl) {
       if (btn.dataset.save === "1") {
         const name = (el.querySelector("#wf-name").value || "").trim() || "Untitled workflow";
         await saveWorkflow({ id: crypto.randomUUID(), name, startUrl, steps });
-        el.querySelector(".perm-buttons").outerHTML = `<p style="margin:0;font-size:12px;color:var(--good, #157a4d)">Saved “${escapeHtml(name)}”. Replay it from the ▤ menu.</p>`;
+        el.querySelector(".perm-buttons").outerHTML = `<p class="muted-note">Saved “${escapeHtml(name)}”. Replay it from the Saved workflows menu.</p>`;
       } else {
         el.remove();
       }
@@ -874,10 +971,13 @@ function wfOutside(e) {
 
 function renderWorkflowsMenu(wfs) {
   if (!wfs.length) {
-    els.wfMenu.innerHTML = `<div class="wf-empty">No saved workflows yet. Click ⏺ to record one.</div>`;
+    els.wfMenu.innerHTML = `<div class="wf-empty">No saved workflows yet. Use the Record button in the header to make one.</div>`;
   } else {
     els.wfMenu.innerHTML = wfs
-      .map((w, i) => `<div class="wf-item" data-i="${i}"><span class="wf-name">▶ ${escapeHtml(w.name)}</span><span class="wf-count">${(w.steps || []).length} steps</span></div>`)
+      .map(
+        (w, i) =>
+          `<div class="wf-item" data-i="${i}">${ic("play")}<span class="wf-name">${escapeHtml(w.name)}</span><span class="wf-count">${(w.steps || []).length} steps</span></div>`,
+      )
       .join("");
     els.wfMenu.querySelectorAll(".wf-item").forEach((el) =>
       el.addEventListener("click", () => replayWorkflow(wfs[Number(el.dataset.i)])),
@@ -895,7 +995,7 @@ function replayWorkflow(wf) {
   if (!wf || running) return;
   hideWorkflowsMenu();
   els.empty.hidden = true;
-  addNote(`▶ Replaying workflow “${wf.name}”`);
+  addNote(`Replaying workflow “${wf.name}”`, "play");
   send({ type: MSG.RUN_TASK, task: workflowPrompt(wf), newChat: newChatPending });
   newChatPending = false;
   setRunning(true);
@@ -933,8 +1033,31 @@ function autoGrow() {
   els.input.style.height = Math.min(els.input.scrollHeight, 160) + "px";
 }
 
+// The transcript follows new output only while the user is already at the
+// bottom; scrolling up to read something now holds its position and offers a
+// "jump to latest" pill instead of being yanked back down.
+let pinned = true;
+
+function nearBottom() {
+  const m = els.messages;
+  return m.scrollHeight - m.scrollTop - m.clientHeight < 40;
+}
+
+function onMessagesScroll() {
+  pinned = nearBottom();
+  els.jumpLatest.hidden = pinned;
+}
+
 function scroll() {
+  if (!pinned) return;
   els.messages.scrollTop = els.messages.scrollHeight;
+  els.jumpLatest.hidden = true;
+}
+
+// Icons come from the inline <svg> sprite at the top of sidepanel.html — no
+// fetch, no icon font, nothing for the MV3 CSP to block.
+function ic(name) {
+  return `<svg class="ic" aria-hidden="true"><use href="#ic-${name}"/></svg>`;
 }
 
 function send(msg) {

@@ -63,34 +63,62 @@ const TEST_IMAGE = {
   data: "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEklEQVR4nGP4z8CAFWEXHbQSACj/P8Fu7N9hAAAAAElFTkSuQmCC",
 };
 
+const PROBE_STAGES = ["text", "tools", "vision"];
+
 /**
  * Empirically probe a model for the two capabilities OpenSidekick needs: tool
  * calling and vision. Runs three tiny live requests and reports what actually
  * happened — so it can't go stale as new models ship, and it works for any
  * provider (including local ones that expose no metadata).
  *
+ * @param {object} provider
+ * @param {string} model
+ * @param {object} opts  { onProgress, signal } — onProgress(stage, resultsSoFar)
+ *                       fires with "text", "tools", "vision" just before each
+ *                       probe and "done" after the last; signal cancels the run.
+ *
  * Returns { text, tools, vision }, each { status: "ok"|"warn"|"fail", detail }.
+ * A cancelled run returns what it had plus aborted: true — it never throws for
+ * the abort, since a caller that cancelled has nothing to handle.
  */
-export async function testModel(provider, model) {
+export async function testModel(provider, model, opts = {}) {
+  const { onProgress, signal } = opts;
   const out = {};
+  const stopped = () => !!(signal && signal.aborted);
+  // Cancelling says nothing about the model, so the probes that never ran say
+  // "cancelled" rather than reporting a failure the user would have to read.
+  const cancelFrom = (stage) => {
+    for (const s of PROBE_STAGES.slice(PROBE_STAGES.indexOf(stage))) out[s] = { status: "warn", detail: "cancelled" };
+    out.aborted = true;
+    return out;
+  };
+  const begin = (stage) => {
+    if (stopped()) return false;
+    if (onProgress) onProgress(stage, out);
+    return true;
+  };
 
   // 1. Text — does the model respond at all?
+  if (!begin("text")) return cancelFrom("text");
   try {
     const r = await callModel(provider, {
       model,
       messages: [{ role: "user", content: "Reply with exactly one word: ready" }],
       maxTokens: 16,
       temperature: 0,
+      signal,
     });
     const said = (r.content || "").trim();
     out.text = said
       ? { status: "ok", detail: said.slice(0, 40) }
       : { status: "warn", detail: "empty response" };
   } catch (e) {
+    if (stopped()) return cancelFrom("text");
     out.text = { status: "fail", detail: shortErr(e) };
   }
 
   // 2. Tools — does the model actually call a tool we give it?
+  if (!begin("tools")) return cancelFrom("tools");
   try {
     const r = await callModel(provider, {
       model,
@@ -104,11 +132,13 @@ export async function testModel(provider, model) {
       ],
       maxTokens: 64,
       temperature: 0,
+      signal,
     });
     out.tools = r.toolCalls && r.toolCalls.length
       ? { status: "ok", detail: "called " + r.toolCalls[0].name }
       : { status: "warn", detail: "accepted tools but didn't call one" };
   } catch (e) {
+    if (stopped()) return cancelFrom("tools");
     const m = shortErr(e);
     out.tools = /tool|function[- ]?call/i.test(m)
       ? { status: "fail", detail: "no tool-calling endpoint for this model" }
@@ -116,24 +146,28 @@ export async function testModel(provider, model) {
   }
 
   // 3. Vision — can the model see a solid-red image?
+  if (!begin("vision")) return cancelFrom("vision");
   try {
     const r = await callModel(provider, {
       model,
       messages: [{ role: "user", content: "What color fills this image? Reply with just the color word.", images: [TEST_IMAGE] }],
       maxTokens: 16,
       temperature: 0,
+      signal,
     });
     const said = (r.content || "").trim().toLowerCase();
     if (/red/.test(said)) out.vision = { status: "ok", detail: "identified the test image" };
     else if (said) out.vision = { status: "warn", detail: `responded "${said.slice(0, 20)}" (couldn't identify it)` };
     else out.vision = { status: "warn", detail: "no answer" };
   } catch (e) {
+    if (stopped()) return cancelFrom("vision");
     const m = shortErr(e);
     out.vision = /image|vision|multimodal|not support|modality/i.test(m)
       ? { status: "fail", detail: "model rejected the image (no vision)" }
       : { status: "fail", detail: m };
   }
 
+  if (onProgress) onProgress("done", out);
   return out;
 }
 
