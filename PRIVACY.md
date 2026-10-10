@@ -1,6 +1,6 @@
 # Privacy Policy — OpenSidekick
 
-_Last updated: 2026-07-03_
+_Last updated: 2026-10-10_
 
 OpenSidekick is a browser extension that runs entirely on your device. It has no
 backend server operated by the project and collects no analytics or telemetry.
@@ -19,12 +19,60 @@ backend server operated by the project and collects no analytics or telemetry.
 
 The only network destination is the **provider endpoint you choose** (e.g.
 OpenRouter, OpenAI, Anthropic, Google, Groq, Venice AI, or a local model at
-`localhost`). OpenSidekick sends requests directly from your browser to that
-endpoint. The project's authors never receive your keys, prompts, or page data.
+`localhost`) — plus, **only if you switch on Smart checks**, the decision
+endpoint described in the next section. OpenSidekick sends requests directly
+from your browser to those endpoints. The project's authors never receive your
+keys, prompts, or page data.
 
 Your chosen provider's own privacy policy governs what they do with the data you
 send them. If you use a local model (Ollama, LM Studio), nothing leaves your
 machine at all.
+
+## Smart checks (optional, off by default)
+
+Settings → **Smart checks** can add fast yes/no safety checks using TypeSafe's
+Jev decision model. It is off until you supply a key and switch a check on, and
+each of the three checks is switched on separately. While it is on, short
+extracts leave your browser to **one** endpoint — whichever key source you
+picked:
+
+- `https://openrouter.ai/api/alpha/decisions`, using one of your existing
+  OpenRouter provider keys, or
+- `https://api.typesafe.ai/v1/systemone`, using a TypeSafe key you add.
+
+What each check sends, and nothing more:
+
+- **Check risky actions before acting**: your own instruction for the current
+  turn (up to 500 characters of it), the tool name, the page URL and title, and
+  the visible label of the element about to be used — or, for a navigation, the
+  URL it is about to open. Never anything the assistant types into the page, and
+  never the value of a page field.
+
+  Your instruction **is** sent, so: don't paste passwords, card numbers or API
+  keys into the chat while this check is on. As a backstop, an instruction that
+  matches a credential marker (`password`, `passcode`, `PIN`, `secret`, `API
+  key`, `token`, `CVV`, a 13–19 digit number) is dropped from the request
+  entirely — the check then runs on the tool, page and label alone.
+- **Classify page text for hidden instructions**: up to 60,000 characters of the
+  page text the assistant has just read. Never on a site matched by the built-in sensitive-site list (banks,
+  payment processors, crypto exchanges — the same list that always requires
+  per-action confirmation): there, only the built-in pattern check runs.
+- **Scheduled tasks: only notify when the result changed**: the task's name, up
+  to 500 characters of its prompt, and up to 4,000 characters each of the
+  previous and the new result. The previous result is kept in
+  `chrome.storage.local` so the next run has something to compare against; it
+  never leaves your browser except in this request.
+
+No identity fields are sent. OpenSidekick never sends the optional `user`,
+`session_id`, or `trace` fields these APIs accept, and there is still no
+account, sign-in, or identifier of any kind.
+
+TypeSafe states that it does not train on data sent to its API. Its retention
+period and processing region are not published, and zero-retention terms are
+enterprise-only — so treat anything a check sends as disclosed to TypeSafe (and
+to OpenRouter as well, if you route through it) under their own policies. If a
+check is off, fails, or times out, the assistant behaves exactly as it does with
+Smart checks disabled.
 
 ## What is NOT collected
 

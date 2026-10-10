@@ -85,6 +85,13 @@ genuinely agentic, and usable with any LLM — including fully local models.**
   redirects / injected navigation); **forced confirmation on purchase/delete-type
   clicks** even in auto mode; and **prompt-injection flagging** of page content.
   Sensitive sites (banking, payments, crypto) always confirm per action.
+- **Smart checks (optional, beta)** — a second opinion from TypeSafe's Jev
+  decision model where the built-in patterns are thin: confirm risky actions
+  before they happen (even in auto), classify page text for hidden instructions
+  aimed at the agent, and let scheduled tasks notify you only when the result
+  actually changed. Needs an OpenRouter or TypeSafe key, is off until you switch
+  it on, and can only ever add a confirmation — the built-in checks stay in
+  place either way.
 - **Saved prompts** — store reusable prompts and insert them by typing `/` in the
   chat (with an autocomplete menu). The composer also has shell-style **prompt
   history**: press ↑/↓ to recall, edit, and re-run previous prompts.
@@ -101,7 +108,8 @@ genuinely agentic, and usable with any LLM — including fully local models.**
 - **Context menu**: right-click a selection to ask about it, or summarize a page.
 - **Streaming responses** and a live view of every action the agent takes.
 - **Local-first & private**: keys and settings live in `chrome.storage.local`;
-  requests go straight to your chosen provider.
+  requests go straight to your chosen provider — plus, only if you switch on
+  Smart checks, the decision endpoint you picked for them.
 
 ## Install
 
@@ -157,6 +165,17 @@ OLLAMA_ORIGINS='chrome-extension://*' ollama serve
 
 (or set `OLLAMA_ORIGINS` in your environment / launchd / systemd unit).
 
+### Smart checks (optional)
+
+Settings → **Smart checks** turns on optional yes/no safety verdicts from
+TypeSafe's Jev decision model. Pick a key source — one of your OpenRouter
+providers' keys, or a TypeSafe key — switch on the checks you want
+(risky-action confirmation, page-text injection classifier, change-only
+notifications for scheduled tasks), and press **Test** to see a live request
+answer. Everything is off by default; if a check is off, fails, or times out,
+the built-in checks apply unchanged. [PRIVACY.md](PRIVACY.md) lists what each
+check sends.
+
 ## How it works
 
 ```
@@ -185,6 +204,19 @@ OLLAMA_ORIGINS='chrome-extension://*' ollama serve
 
 - **Your keys never leave your browser** except in the request to the provider
   you configured. There is no OpenSidekick server and no analytics.
+- **Smart checks (optional, off by default)**: switching them on in Settings →
+  Smart checks adds a second destination for short page extracts — the decision
+  endpoint you pick, either `https://openrouter.ai/api/alpha/decisions` (with
+  one of your OpenRouter keys) or `https://api.typesafe.ai/v1/systemone` (with a
+  TypeSafe key). Nothing goes there until you add a key and turn a check on, and
+  [PRIVACY.md](PRIVACY.md) lists exactly what each check sends. A check can only
+  ever ask you to confirm something the built-in rules would have let through —
+  it can't relax a confirmation, unblock a site, or override the built-in
+  prompt-injection patterns. If one is off, fails, or times out, the agent
+  behaves exactly as it does with Smart checks disabled. The page-text check
+  never runs on a site matched by the built-in sensitive-site list, and "only notify when the result changed" is
+  beta: it compares the model's own wording of a scheduled task's result, so a
+  reworded but unchanged answer can still count as a change.
 - **The agent uses your real logged-in sessions**, like any human clicking in
   your browser. Start on trusted sites, watch what it does, and use "ask" mode.
 - **Prompt-injection awareness**: the system prompt instructs the model to treat
@@ -222,12 +254,12 @@ Shipped since the first cut:
 - [x] Scheduled and recurring tasks (with result notifications)
 - [x] Workflow recording & replay
 - [x] Connect to MCP tool servers (extend beyond the browser)
+- [x] Prompt-injection classifier on untrusted content (optional Smart check, Jev)
 
 Planned, to reach and exceed feature parity with vendor-locked assistants:
 
 - [ ] Upload files into file inputs (via the debugger)
 - [ ] CDP-based trusted input for tougher sites
-- [ ] Prompt-injection classifier on untrusted content
 - [ ] Firefox (WebExtensions) build
 
 Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).

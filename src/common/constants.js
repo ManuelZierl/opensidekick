@@ -5,6 +5,13 @@
 
 export const STORAGE_KEY = "opensidekick.config.v1";
 
+// chrome.storage.local key for scheduled-run bookkeeping (what each task last
+// produced, when, and how many notifications were suppressed). Deliberately a
+// key of its own rather than fields on the task: a config write re-registers
+// every alarm, and the options page writes the whole config from its own
+// in-memory snapshot — so run state must not live in there.
+export const TASK_RUNS_KEY = "opensidekick.taskRuns.v1";
+
 // chrome.storage.session key for the current chat's conversation. MV3 can
 // terminate the idle service worker at any time; persisting here lets the next
 // worker pick the chat back up (and it clears automatically when Chrome closes).
@@ -151,7 +158,37 @@ export const DEFAULT_CONFIG = {
   workflows: [], // { id, name, startUrl, steps: [{ action, description }] }
   // Remote MCP tool servers whose tools the agent can use.
   mcpServers: [], // { id, name, url, authToken, enabled }
+  // Optional "smart checks": fast yes/no verdicts from TypeSafe's Jev decision
+  // model, used to catch what the built-in regex heuristics miss. Entirely off
+  // until the user picks a key source and switches a check on; on any failure
+  // the agent behaves exactly as it does with this block disabled.
+  //   source     -> "openrouter" (borrow an OpenRouter provider's key, by
+  //                 providerId) or "typesafe" (its own key, below)
+  //   baseUrl    -> optional override; blank uses the default for the source
+  //   model      -> optional override; blank uses DEFAULT_DECISION_MODELS
+  //   features   -> one switch per check, all off
+  decisions: {
+    enabled: false,
+    source: "openrouter",
+    providerId: null,
+    apiKey: "",
+    baseUrl: "",
+    model: "",
+    sensitivity: "balanced",
+    features: { injection: false, action: false, changeOnly: false },
+  },
   settings: { ...DEFAULT_SETTINGS },
+};
+
+// Probability of "bad" at or above which a smart check escalates (prompts the
+// user, flags the page). Cautious escalates on weaker evidence, so it prompts
+// more often. NOTE: Jev's calibration is unverified by us — the vendor claims
+// 0.8 means "right about 80% of the time" — so these numbers may move once
+// there's real-world data behind them.
+export const DECISION_SENSITIVITY = {
+  cautious: 0.5,
+  balanced: 0.8,
+  permissive: 0.95,
 };
 
 // Schedule presets shown in the options UI (minutes).

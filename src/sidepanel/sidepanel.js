@@ -517,16 +517,30 @@ function showPermission(req) {
   const el = document.createElement("div");
   el.className = "perm-card" + (req.sensitive ? " sensitive" : "");
   const action = describeAction(req.toolName, req.args);
-  const title = req.sensitive ? "⚠ Sensitive site" : req.newSite ? "New site — trust it?" : "Allow action?";
-  const intro = req.newSite
-    ? `You're in <strong>only-allowed-sites</strong> mode and <span class="origin">${escapeHtml(req.origin)}</span> isn't on your list. OpenSidekick wants to <strong>${escapeHtml(action)}</strong> here.`
-    : `OpenSidekick wants to <strong>${escapeHtml(action)}</strong> on <span class="origin">${escapeHtml(req.origin)}</span>.`;
+  // An MCP tool runs on a server, not on a page: no origin, and nothing here may
+  // read as "trust this site" (a session grant for the server is all it gets).
+  const title = req.mcp
+    ? "Allow MCP tool?"
+    : req.sensitive
+      ? req.why
+        ? "⚠ Confirm this action?"
+        : "⚠ Sensitive site"
+      : req.newSite
+        ? "New site — trust it?"
+        : "Allow action?";
+  const intro = req.mcp
+    ? `OpenSidekick wants to call the tool <strong>${escapeHtml(req.toolName || "")}</strong> on your MCP server <span class="origin">${escapeHtml(req.serverName || "")}</span>.`
+    : req.newSite
+      ? `You're in <strong>only-allowed-sites</strong> mode and <span class="origin">${escapeHtml(req.origin)}</span> isn't on your list. OpenSidekick wants to <strong>${escapeHtml(action)}</strong> here.`
+      : `OpenSidekick wants to <strong>${escapeHtml(action)}</strong> on <span class="origin">${escapeHtml(req.origin)}</span>.`;
+  const alsoLabel = req.mcp ? "Allow for this session" : req.newSite ? "Trust this site" : "Always allow this site";
   el.innerHTML = `
     <h3>${title}</h3>
     <p>${intro}</p>
+    ${req.why ? `<p style="font-size:12px;color:var(--muted)">${escapeHtml(req.why)}.</p>` : ""}
     <div class="perm-buttons">
       <button class="primary" data-choice="once">Allow once</button>
-      ${req.sensitive ? "" : `<button data-choice="always">${req.newSite ? "Trust this site" : "Always allow this site"}</button>`}
+      ${req.sensitive ? "" : `<button data-choice="always">${alsoLabel}</button>`}
       <button class="danger" data-choice="decline">Decline</button>
     </div>`;
   el.querySelectorAll("button").forEach((btn) =>

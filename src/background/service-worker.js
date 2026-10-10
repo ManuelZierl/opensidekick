@@ -3,7 +3,8 @@
 // loop, and mediates permission prompts.
 
 import { MSG, STORAGE_KEY, SESSION_CONVO_KEY } from "../common/constants.js";
-import { loadConfig, getActiveProvider, setSitePermission } from "./storage.js";
+import { loadConfig, getActiveProvider, setSitePermission, loadTaskRuns, recordTaskRun } from "./storage.js";
+import { resolveSource, isNoteworthyChange, featureEnabled, thresholdFor } from "./decisions.js";
 import { runAgent } from "./agent.js";
 import { detachAll } from "./cdp.js";
 import { ensureContentScript } from "./tools.js";
@@ -136,17 +137,27 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name.startsWith(SCHED_PREFIX)) runScheduledById(alarm.name.slice(SCHED_PREFIX.length));
 });
 
+// Idempotent on purpose: an alarm that already has the right period is left
+// exactly as it is, including its next fire time. Clearing and re-creating every
+// alarm on each config change pushed every task's next run out by its full
+// interval — so anything that wrote the config regularly could starve a
+// long-interval task indefinitely (an hourly task resetting a daily one).
 async function reconcileAlarms() {
   const config = await loadConfig();
-  const existing = await chrome.alarms.getAll();
-  for (const a of existing) {
-    if (a.name.startsWith(SCHED_PREFIX)) await chrome.alarms.clear(a.name);
-  }
+  const wanted = new Map();
   for (const t of config.scheduledTasks || []) {
     const minutes = Number(t.intervalMinutes) || 0;
-    if (t.enabled && minutes > 0) {
-      chrome.alarms.create(SCHED_PREFIX + t.id, { periodInMinutes: minutes, delayInMinutes: minutes });
-    }
+    if (t.enabled && minutes > 0) wanted.set(SCHED_PREFIX + t.id, minutes);
+  }
+  for (const a of await chrome.alarms.getAll()) {
+    if (!a.name.startsWith(SCHED_PREFIX)) continue;
+    // `has` first: a stray one-shot alarm (no period) for a deleted task must
+    // not match an undefined `wanted` entry and survive as "already correct".
+    if (wanted.has(a.name) && wanted.get(a.name) === a.periodInMinutes) wanted.delete(a.name); // already correct
+    else await chrome.alarms.clear(a.name); // stale period, or the task is gone
+  }
+  for (const [name, minutes] of wanted) {
+    chrome.alarms.create(name, { periodInMinutes: minutes, delayInMinutes: minutes });
   }
 }
 
@@ -458,6 +469,7 @@ async function runScheduledTask(task) {
   startKeepAlive();
   const conversation = [{ role: "user", content: task.prompt }];
   let summary = "";
+  let errored = false;
   try {
     await runAgent({
       conversation,
@@ -469,7 +481,19 @@ async function runScheduledTask(task) {
       emit: (ev) => {
         if (ev.kind === "finish" && ev.summary) summary = ev.summary;
         else if (ev.kind === "assistant_end" && ev.content) summary = ev.content;
-        else if (ev.kind === "error" && !summary) summary = "Error: " + ev.error;
+        else if (ev.kind === "error") {
+          errored = true;
+          if (!summary) summary = "Error: " + ev.error;
+        } else if (ev.kind === "tool_end" && ev.ok === false && /Declined by user/.test(ev.summary || "")) {
+          // Nobody is here to answer a confirmation, so requestPermission below
+          // declines — which cuts the run short. That is a failure, not a quiet
+          // success: without this the run could be reported as "Done." or, with
+          // change-only notifications on, compared away entirely.
+          errored = true;
+          if (!summary) {
+            summary = `Stopped: this needed your confirmation for ${ev.name}, and unattended runs can't ask.`;
+          }
+        }
       },
       // No UI to answer prompts — sensitive actions are declined (safe default).
       requestPermission: async () => "decline",
@@ -477,13 +501,67 @@ async function runScheduledTask(task) {
       saveSitePermission: () => {},
     });
   } catch (e) {
+    errored = true;
     summary = "Error: " + (e.message || e);
   } finally {
     await detachAll().catch(() => {});
     currentRun = null;
     if (!recording) stopKeepAlive();
   }
-  notify(task.name || "Scheduled task", summary || "Done.");
+  await finishScheduledRun(task, summary, errored);
+}
+
+// Notify (or, with the change-only smart check on, stay quiet when this run said
+// the same thing as the last one), then remember what this run produced so the
+// next one has something to compare against.
+async function finishScheduledRun(task, summary, errored) {
+  const title = task.name || "Scheduled task";
+  const message = summary || "Done.";
+  const config = await loadConfig();
+  const prev = (await loadTaskRuns())[task.id] || {};
+  // A failed run always speaks up, and so does the very first run of a task:
+  // there is nothing to compare it against yet.
+  const src = errored ? null : resolveSource(config);
+  const changeOnly = !!src && featureEnabled(config, "changeOnly") && prev.lastResult != null;
+
+  let suppressed = Number(prev.suppressedCount) || 0;
+  let notifiedChange = false;
+  if (!changeOnly) {
+    notify(title, message);
+    notifiedChange = true;
+  } else {
+    const r = await isNoteworthyChange(src, {
+      taskName: task.name,
+      prompt: task.prompt,
+      previous: prev.lastResult,
+      current: summary,
+    });
+    // null = the check didn't answer; fall back to today's behavior and notify.
+    if (r === null || r.probability >= thresholdFor(config)) {
+      notify(title, message);
+      notifiedChange = true;
+    } else {
+      suppressed++;
+      // Every sixth quiet run, say so — a task that never speaks looks broken.
+      if (suppressed % 6 === 0) notify(title, "(No change in the last 6 runs.) " + message);
+    }
+  }
+
+  // Persisted even when the feature is off: it costs nothing and means turning
+  // it on later has a baseline to work from.
+  try {
+    await recordTaskRun(
+      task.id,
+      {
+        lastResult: String(summary || "").slice(0, 2000),
+        lastRunAt: Date.now(),
+        suppressedCount: notifiedChange ? 0 : suppressed,
+      },
+      (config.scheduledTasks || []).map((t) => t.id),
+    );
+  } catch {
+    /* the notification already went out; losing the baseline isn't fatal */
+  }
 }
 
 function notify(title, message) {

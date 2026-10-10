@@ -5,6 +5,74 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.1.9] — 2026-10-10
+
+### Added
+
+- **Smart checks (beta, optional)** — Settings → **Smart checks**. Fast yes/no
+  safety verdicts from TypeSafe's **Jev** decision model, used to catch what the
+  built-in pattern matching misses. The key source is yours to pick: one of your
+  existing **OpenRouter** provider keys (requests go to
+  `https://openrouter.ai/api/alpha/decisions`) or a **TypeSafe** key
+  (`https://api.typesafe.ai/v1/systemone`). Three checks, each switched on
+  separately:
+  - **Check risky actions before acting** — asks you first when a click, type or
+    navigate looks like a purchase, payment, deletion or send, **even in Auto**.
+    It can only ever add a confirmation the built-in rules would have let
+    through; it can't relax one, unblock a site, or override a site rule.
+    Unattended scheduled runs have nobody to ask, so a confirmation there stops
+    the task instead.
+  - **Classify page text for hidden instructions** — a prompt-injection
+    classifier layered on top of the built-in heuristic, which stays as an
+    unconditional floor. It never runs on a site matched by the built-in sensitive-site list (banks, payment
+    processors, crypto exchanges); there, only the built-in check applies.
+  - **Scheduled tasks: only notify when the result changed** — compares a run's
+    result with the previous one and stays quiet when nothing material changed.
+    Beta: it compares the model's own wording, so a reworded but unchanged
+    answer can still count as a change. A task's first run, a failed run, and
+    every sixth quiet run always notify.
+
+  A **Sensitivity** setting (Cautious / Balanced / Permissive) sets how much
+  certainty it takes to escalate, and a **Test** button runs one live request
+  with two known answers and reports the measured latency. All of it is off
+  until you supply a key and switch a check on, and on any failure — no key, an
+  error, a timeout, or three failures in a row — the agent behaves exactly as it
+  does with smart checks disabled.
+
+  Privacy: short extracts go to the one endpoint you picked — the page text just
+  read for the injection check; the tool name, page URL and title, the target
+  element's label (or destination URL) and up to 500 characters of your own
+  instruction for the action check; the task name, prompt and last two run
+  summaries for change-only notifications. Text the agent types into a page is
+  never sent, an instruction that looks like it carries a credential is withheld
+  entirely, and no identifiers (`user`, `session_id`, `trace`) are ever sent —
+  there is still no account and no telemetry. [PRIVACY.md](PRIVACY.md) lists
+  exactly what each check sends.
+- **Loop detector.** The agent is now stopped from running the exact same action
+  (same tool, same arguments) three times in a row: the fourth attempt is
+  refused and the model is nudged to try a different element or a different
+  approach, with one warning in the chat. Reads, scrolls, waits and screenshots
+  are exempt — repeating those is normal. Pure JavaScript; no key or smart check
+  needed.
+
+### Fixed
+
+- **MCP tool calls now respect your autonomy mode.** Tools from your MCP servers
+  were dispatched before the permission gate, so **ask** and **plan** modes
+  never confirmed them — even though an MCP tool can send mail, move files, or
+  change a repository. Ask/plan now confirm the first call per server per task
+  ("Allow for this session"), and a decline sticks for the rest of the run
+  instead of re-prompting on every step. **Auto** is unchanged, and scheduled
+  runs — which already run as auto — are unchanged.
+- **Saving settings no longer pushes every scheduled task's next run back.**
+  Scheduled alarms were cleared and re-created on every config change, so each
+  edit reset every task's countdown to a full interval. Alarms whose schedule
+  hasn't changed are now left alone, including their next fire time.
+- **An unattended scheduled run that needed a confirmation is no longer reported
+  as "Done."** Unattended runs decline prompts (nobody is watching to approve),
+  which cuts the run short; the notification now says which tool needed
+  confirmation, and such a run is never silenced by change-only notifications.
+
 ## [0.1.8] — 2026-09-18
 
 ### Added

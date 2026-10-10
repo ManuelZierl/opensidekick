@@ -396,6 +396,17 @@ textarea.s-prompt {
   margin: 3px 0;
 }
 
+/* Smart checks: a stack of checkbox rows, each with its own hint underneath. */
+#smart-checks .radio + .hint {
+  margin: 2px 0 10px 26px;
+}
+
+/* The endpoint override sends a real API key to a URL the user typed, so say
+   so in the warning colour rather than the quiet hint grey. */
+#dec-base-url-hint.warn {
+  color: var(--warn);
+}
+
 /* Same guard as the side panel: hidden must beat component display rules. */
 [hidden] {
   display: none !important;

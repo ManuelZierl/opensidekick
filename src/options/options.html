@@ -169,6 +169,73 @@
         <button id="add-mcp" class="btn small">+ Add MCP server</button>
       </section>
 
+      <section class="card" id="smart-checks">
+        <h2>8. Smart checks (beta)</h2>
+        <p class="hint">Optional. Uses TypeSafe's Jev decision model to add fast yes/no safety checks. Off until you pick a key source and turn a check on. Sends short page extracts to the provider you choose — see PRIVACY.md.</p>
+
+        <div class="field">
+          <label class="radio"><input type="checkbox" id="dec-enabled" /> Enable smart checks <span class="tag warn-tag">beta</span></label>
+          <p class="hint">Master switch. Each check below is still off until you turn it on.</p>
+        </div>
+
+        <div class="field">
+          <label>Key source</label>
+          <div class="radio-row">
+            <label class="radio"><input type="radio" name="dec-source" value="openrouter" /> Use one of my OpenRouter providers' keys</label>
+            <label class="radio"><input type="radio" name="dec-source" value="typesafe" /> Use a TypeSafe key</label>
+          </div>
+        </div>
+
+        <div class="field" id="dec-provider-field">
+          <label for="dec-provider">OpenRouter provider</label>
+          <select id="dec-provider"></select>
+          <p class="hint" id="dec-provider-hint" hidden>Add an OpenRouter provider in section 1 first</p>
+        </div>
+
+        <div class="field" id="dec-key-field">
+          <label for="dec-key">TypeSafe API key <a class="key-link" href="https://console.typesafe.ai" target="_blank" rel="noopener">get one ↗</a></label>
+          <input type="password" id="dec-key" placeholder="Paste your TypeSafe API key" autocomplete="off" />
+        </div>
+
+        <div class="field">
+          <label for="dec-model">Model</label>
+          <input type="text" id="dec-model" placeholder="typesafe/jev-1.13" />
+          <p class="hint">Leave blank to use the default for the key source above.</p>
+        </div>
+
+        <div class="field">
+          <label for="dec-base-url">Endpoint URL (advanced, optional)</label>
+          <input type="text" id="dec-base-url" placeholder="https://openrouter.ai/api/alpha/decisions" />
+          <p class="hint" id="dec-base-url-hint"></p>
+        </div>
+
+        <div class="field">
+          <label for="dec-sensitivity">Sensitivity</label>
+          <select id="dec-sensitivity">
+            <option value="cautious">Cautious</option>
+            <option value="balanced">Balanced</option>
+            <option value="permissive">Permissive</option>
+          </select>
+          <p class="hint">Cautious asks more often</p>
+        </div>
+
+        <div class="field">
+          <label>Checks</label>
+          <label class="radio"><input type="checkbox" id="dec-f-action" /> Check risky actions before acting</label>
+          <p class="hint">Asks you first when a click/type/navigate looks like a purchase, payment, deletion or send, even in Auto. Sends your instruction for the current turn (not what gets typed into the page), so don't paste passwords or card numbers into the chat while this is on — an instruction that looks like it carries one is withheld. Unattended scheduled runs can't ask, so a confirmation there stops the task instead.</p>
+          <label class="radio"><input type="checkbox" id="dec-f-injection" /> Classify page text for hidden instructions</label>
+          <p class="hint">Adds a smarter prompt-injection check on top of the built-in one. Sends up to 60,000 characters of the page just read — never on a sensitive site (banks, payment processors, crypto), where only the built-in check runs.</p>
+          <label class="radio"><input type="checkbox" id="dec-f-change" /> Scheduled tasks: only notify when the result changed</label>
+          <p class="hint">Beta: it compares the model's own wording of the result, so a reworded but unchanged answer can still count as a change. A failed run, and every sixth quiet run, always notifies.</p>
+          <p class="hint" id="dec-features-hint" hidden>Pick a key source with a key in it to turn these on.</p>
+        </div>
+
+        <div class="field">
+          <button id="dec-test" class="btn small" title="Run one live decision request with two known answers">Test</button>
+          <div class="test-status" id="dec-test-status" hidden></div>
+        </div>
+      </section>
+
       <footer>
         <span id="toast" class="toast" hidden>Saved</span>
         <span style="display:flex;gap:16px;margin-left:auto">

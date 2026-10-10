@@ -135,6 +135,14 @@ function decide(messages) {
     return { kind: "text", text: `redirect_blocked=${blocked}` };
   }
 
+  // MCP permission gate: two calls to the same server in one run — the second
+  // must not re-prompt once the server is allowed for the session.
+  if (/two cities/.test(firstUser)) {
+    if (n === 0) return { kind: "tool", name: "mcp_testmcp_get_weather", args: { city: "Paris" } };
+    if (n === 1) return { kind: "tool", name: "mcp_testmcp_get_weather", args: { city: "Berlin" } };
+    return { kind: "text", text: "mcp_two_done" };
+  }
+
   // MCP tool: call the remote weather tool, then report its result.
   if (/weather/.test(firstUser)) {
     if (n === 0) return { kind: "tool", name: "mcp_testmcp_get_weather", args: { city: "Paris" } };
@@ -428,11 +436,12 @@ async function main() {
     await optPage.evaluate(([agentEventType, permReq, permResp]) => {
       window.__events = [];
       window.__perm = [];
+      window.__permChoice = "once"; // scenarios that need "always"/"decline" set this
       chrome.runtime.onMessage.addListener((m) => {
         if (m && m.type === agentEventType) window.__events.push(m);
         if (m && m.type === permReq) {
-          window.__perm.push({ sensitive: !!m.sensitive, toolName: m.toolName, id: m.id });
-          chrome.runtime.sendMessage({ type: permResp, id: m.id, choice: "once" });
+          window.__perm.push({ sensitive: !!m.sensitive, toolName: m.toolName, id: m.id, mcp: m.mcp === true, origin: m.origin, why: m.why || "" });
+          chrome.runtime.sendMessage({ type: permResp, id: m.id, choice: window.__permChoice || "once" });
         }
       });
     }, [MSG.AGENT_EVENT, MSG.PERMISSION_REQUEST, MSG.PERMISSION_RESPONSE]);
@@ -694,6 +703,59 @@ async function main() {
     check(mcpTools.includes("mcp_testmcp_get_weather"), `mcp: agent called the MCP tool (tools: ${mcpTools.join(", ")})`);
     check(/Weather in Paris/.test(answerOf(mcpRun.events)), `mcp: the MCP tool result reached the model (got "${answerOf(mcpRun.events)}")`);
     check(mcpRun.events.filter((e) => e.kind === "error").length === 0, "mcp: no error events");
+
+    // --- MCP permission gate: MCP tool calls used to dispatch BEFORE the
+    // permission gate, so they skipped autonomy entirely. They are now gated
+    // per server (not per site), and nothing about them touches sitePermissions.
+    const mcpServers = [{ id: "m1", name: "testmcp", url: `${base}/mcp`, authToken: "", enabled: true }];
+    const setMcpAutonomy = (autonomy) =>
+      optPage.evaluate(([key, cfg]) => chrome.storage.local.set({ [key]: cfg }), [
+        STORAGE_KEY,
+        { ...config, mcpServers, sitePermissions: {}, settings: { ...config.settings, autonomy } },
+      ]);
+
+    // (1) "ask": the first call prompts; a session grant covers the rest.
+    await setMcpAutonomy("ask");
+    await optPage.evaluate(() => (window.__permChoice = "always"));
+    const mcpAsk = await drive("Weather in two cities, please.");
+    const askPerms = mcpAsk.perms.filter((p) => p.mcp);
+    check(askPerms.length === 1, `mcp-gate: "ask" prompts once per server, not per call (${mcpAsk.perms.length} prompt(s), ${askPerms.length} MCP)`);
+    check(!!askPerms[0] && /^MCP server:/.test(askPerms[0].origin || ""), `mcp-gate: the prompt names the server, not a page origin (got "${askPerms[0] && askPerms[0].origin}")`);
+    check(!!askPerms[0] && askPerms[0].toolName === "mcp_testmcp_get_weather", `mcp-gate: the prompt names the tool (got "${askPerms[0] && askPerms[0].toolName}")`);
+    check(/mcp_two_done/.test(answerOf(mcpAsk.events)), `mcp-gate: both calls ran after the session grant (got "${answerOf(mcpAsk.events)}")`);
+
+    // (2) "auto": no prompt at all (unchanged flow).
+    await optPage.evaluate(() => (window.__permChoice = "once"));
+    await setMcpAutonomy("auto");
+    const mcpAuto = await drive("Weather in two cities, please.");
+    check(mcpAuto.perms.length === 0, `mcp-gate: "auto" dispatches without prompting (got ${mcpAuto.perms.length})`);
+    check(/mcp_two_done/.test(answerOf(mcpAuto.events)), `mcp-gate: the auto-mode run completed (got "${answerOf(mcpAuto.events)}")`);
+
+    // (3) Declining hands the model an error and the run still ends cleanly —
+    // and the refusal sticks: a second call to the same server must not raise
+    // another card, or a model that keeps asking turns Decline into a drum.
+    await setMcpAutonomy("ask");
+    await optPage.evaluate(() => (window.__permChoice = "decline"));
+    const mcpDeny = await drive("Weather in two cities, please.");
+    const denyEnds = mcpDeny.events.filter((e) => e.kind === "tool_end" && e.ok === false && /Declined/i.test(e.summary || ""));
+    check(denyEnds.length === 2, `mcp-gate: a declined MCP call returns an error to the model (got ${denyEnds.length} of 2)`);
+    check(
+      mcpDeny.perms.filter((p) => p.mcp).length === 1,
+      `mcp-gate: a refusal sticks for the run — one card, not one per call (got ${mcpDeny.perms.filter((p) => p.mcp).length})`,
+    );
+    check(
+      mcpDeny.events.some((e) => e.kind === "idle") && mcpDeny.events.filter((e) => e.kind === "error").length === 0,
+      "mcp-gate: the run ends cleanly after a decline",
+    );
+    await optPage.evaluate(() => (window.__permChoice = "once"));
+
+    // (4) None of that may create a per-site rule for an MCP server.
+    const mcpSitePerms = await optPage.evaluate(async (key) => ((await chrome.storage.local.get(key))[key] || {}).sitePermissions || {}, STORAGE_KEY);
+    check(
+      Object.keys(mcpSitePerms).every((k) => !/mcp/i.test(k)),
+      `mcp-gate: no sitePermissions entry for an MCP server (keys: ${JSON.stringify(Object.keys(mcpSitePerms))})`,
+    );
+    await setMcpAutonomy("auto"); // restore for the tests that follow
 
     // --- Direct-image tab: take_screenshot sends the full-res image itself ---
     lastImageUrl = "";

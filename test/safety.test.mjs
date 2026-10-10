@@ -1,4 +1,4 @@
-import { detectInjection, isSensitiveActionText } from "../src/background/safety.js";
+import { detectInjection, isSensitiveActionText, looksLikeSecret } from "../src/background/safety.js";
 
 let fail = 0;
 const eq = (cond, msg) => {
@@ -25,6 +25,16 @@ eq(!isSensitiveActionText("Search"), "'Search' is not sensitive");
 eq(!isSensitiveActionText("Add to cart"), "'Add to cart' is not sensitive (checkout is)");
 eq(!isSensitiveActionText("Read more"), "'Read more' is not sensitive");
 eq(!isSensitiveActionText(""), "empty label is not sensitive");
+
+// --- credential markers in text the user typed ---
+eq(looksLikeSecret("log into acme.com with t@example.com / hunter2 — my password is hunter2"), "flags a pasted password");
+eq(looksLikeSecret("the PIN is 4417"), "flags a PIN");
+eq(looksLikeSecret("pay with card 4111111111111111"), "flags a card number");
+eq(looksLikeSecret("use api_key sk-abc123 for the form"), "flags an API key");
+eq(looksLikeSecret("paste the token into the field"), "flags a token");
+eq(!looksLikeSecret("Search for cats on this page."), "ordinary request is not a secret");
+eq(!looksLikeSecret("Summarize this article and press Continue."), "ordinary request with an action is not a secret");
+eq(!looksLikeSecret(""), "empty request is not a secret");
 
 console.log(fail ? "\nSOME SAFETY TESTS FAILED" : "\nALL SAFETY TESTS PASSED");
 process.exit(fail);

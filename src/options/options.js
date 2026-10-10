@@ -1,9 +1,17 @@
 // Options page: manage providers, model selection, behavior, and site rules.
 
-import { PROVIDER_PRESETS, DEFAULT_SETTINGS, MSG, STORAGE_KEY } from "../common/constants.js";
+import { PROVIDER_PRESETS, DEFAULT_CONFIG, DEFAULT_SETTINGS, MSG, STORAGE_KEY } from "../common/constants.js";
 import { loadConfig, saveConfig } from "../background/storage.js";
 import { listModels, testModel } from "../background/providers.js";
 import { connectServer, listTools } from "../background/mcp.js";
+import {
+  DEFAULT_DECISION_MODELS,
+  OPENROUTER_DECISIONS_URL,
+  TYPESAFE_DECISIONS_URL,
+  isOpenRouterUrl,
+  resolveSource,
+  testDecisions,
+} from "../background/decisions.js";
 
 let config;
 
@@ -32,6 +40,7 @@ async function init() {
   $("#add-sched").addEventListener("click", addSched);
   $("#add-mcp").addEventListener("click", addMcp);
   wireSettings();
+  wireDecisions();
   renderAll();
 
   // This page holds `config` in memory and persist() writes the WHOLE object.
@@ -59,6 +68,8 @@ function renderAll() {
   renderScheduled();
   renderWorkflows();
   renderMcp();
+  // renderProviders() ends with renderDecisions() — the smart-checks section
+  // reads the provider list, so it is always rendered from there.
 }
 
 // -------------------------------------------------------------------------
@@ -111,6 +122,10 @@ function renderProviders() {
     baseUrl.addEventListener("change", () => {
       provider.baseUrl = baseUrl.value.trim();
       persist();
+      // Whether this provider can lend its key to smart checks depends on the
+      // URL and the key, so section 8 has to be re-rendered here: persist()
+      // suppresses the storage.onChanged re-render for our own writes.
+      renderDecisions();
     });
 
     const keyInput = node.querySelector(".api-key");
@@ -118,6 +133,7 @@ function renderProviders() {
     keyInput.addEventListener("change", () => {
       provider.apiKey = keyInput.value.trim();
       persist();
+      renderDecisions();
     });
     const keyLink = node.querySelector(".key-link");
     if (provider.keyUrl) {
@@ -150,6 +166,8 @@ function renderProviders() {
 
     providerList.appendChild(node);
   }
+  // The smart-checks key source points at one of these, by id.
+  renderDecisions();
 }
 
 function setActive(id) {
@@ -290,6 +308,168 @@ function renderSettings() {
   $("#enable-vision").checked = !!s.enableVision;
   $("#enable-js").checked = !!s.enableJsTool;
   $("#enable-cdp").checked = !!s.enableCdp;
+}
+
+// -------------------------------------------------------------------------
+// Smart checks (Jev decision model)
+// -------------------------------------------------------------------------
+const DECISION_FEATURES = [
+  ["#dec-f-action", "action"],
+  ["#dec-f-injection", "injection"],
+  ["#dec-f-change", "changeOnly"],
+];
+
+// Older configs predate this block, and a half-written one would lose the
+// feature switches — fill both in before reading or writing them.
+function decisions() {
+  if (!config.decisions) config.decisions = structuredClone(DEFAULT_CONFIG.decisions);
+  if (!config.decisions.features) config.decisions.features = { ...DEFAULT_CONFIG.decisions.features };
+  return config.decisions;
+}
+
+function wireDecisions() {
+  $("#dec-enabled").addEventListener("change", (e) => {
+    decisions().enabled = e.target.checked;
+    persist();
+    renderDecisions();
+  });
+  document.querySelectorAll('input[name="dec-source"]').forEach((r) =>
+    r.addEventListener("change", () => {
+      decisions().source = r.value;
+      persist();
+      renderDecisions();
+    }),
+  );
+  $("#dec-provider").addEventListener("change", (e) => {
+    decisions().providerId = e.target.value || null;
+    persist();
+    renderDecisions();
+  });
+  $("#dec-key").addEventListener("change", (e) => {
+    decisions().apiKey = e.target.value.trim();
+    persist();
+    renderDecisions();
+  });
+  $("#dec-model").addEventListener("change", (e) => {
+    decisions().model = e.target.value.trim();
+    persist();
+  });
+  $("#dec-base-url").addEventListener("change", (e) => {
+    decisions().baseUrl = e.target.value.trim();
+    persist();
+    renderDecisions(); // the "your key goes here" warning depends on this field
+  });
+  $("#dec-sensitivity").addEventListener("change", (e) => {
+    decisions().sensitivity = e.target.value;
+    persist();
+  });
+  for (const [sel, key] of DECISION_FEATURES) {
+    $(sel).addEventListener("change", (e) => {
+      decisions().features[key] = e.target.checked;
+      persist();
+    });
+  }
+  $("#dec-test").addEventListener("click", () => runDecisionTest($("#dec-test"), $("#dec-test-status")));
+}
+
+function renderDecisions() {
+  const d = decisions();
+  const source = d.source === "typesafe" ? "typesafe" : "openrouter";
+  $("#dec-enabled").checked = !!d.enabled;
+  const sourceRadio = document.querySelector(`input[name="dec-source"][value="${source}"]`);
+  if (sourceRadio) sourceRadio.checked = true;
+
+  // Only a provider that really points at openrouter.ai can lend its key.
+  const orProviders = (config.providers || []).filter((p) => isOpenRouterUrl(p.baseUrl));
+  const select = $("#dec-provider");
+  select.innerHTML = "";
+  const blank = document.createElement("option");
+  blank.value = "";
+  blank.textContent = orProviders.length ? "Pick a provider…" : "No OpenRouter providers";
+  select.appendChild(blank);
+  for (const p of orProviders) {
+    const opt = document.createElement("option");
+    opt.value = p.id;
+    opt.textContent = p.name + (p.apiKey ? "" : " (no key yet)");
+    select.appendChild(opt);
+  }
+  select.value = orProviders.some((p) => p.id === d.providerId) ? d.providerId : "";
+  $("#dec-provider-field").hidden = source !== "openrouter";
+  $("#dec-provider-hint").hidden = orProviders.length > 0;
+
+  $("#dec-key-field").hidden = source !== "typesafe";
+  $("#dec-key").value = d.apiKey || "";
+  $("#dec-model").value = d.model || "";
+  $("#dec-model").placeholder = DEFAULT_DECISION_MODELS[source];
+  $("#dec-base-url").value = d.baseUrl || "";
+  $("#dec-base-url").placeholder = source === "typesafe" ? TYPESAFE_DECISIONS_URL : OPENROUTER_DECISIONS_URL;
+  // An override is the one way a key reaches a host we didn't check — name the
+  // key that would travel so a "just paste this proxy URL" has to say it out loud.
+  const baseUrlHint = $("#dec-base-url-hint");
+  baseUrlHint.classList.toggle("warn", !!d.baseUrl);
+  // …and say it out loud when the override is plain http: the key would travel
+  // unencrypted, which is only ever reasonable for a local proxy.
+  const plainHttp = /^http:\/\//i.test((d.baseUrl || "").trim());
+  baseUrlHint.textContent = d.baseUrl
+    ? (source === "typesafe"
+        ? "Your TypeSafe key will be sent to this URL."
+        : "Your OpenRouter provider's key will be sent to this URL.") +
+      (plainHttp ? " This URL is plain http, so the key is not encrypted in transit." : "")
+    : "Leave blank to use the standard endpoint for the key source above.";
+  $("#dec-sensitivity").value = d.sensitivity || DEFAULT_CONFIG.decisions.sensitivity;
+
+  // No usable key source = nothing to switch on.
+  const resolvable = !!resolveSource(withDecisionsEnabled());
+  for (const [sel, key] of DECISION_FEATURES) {
+    const box = $(sel);
+    box.checked = !!d.features[key];
+    box.disabled = !resolvable;
+  }
+  $("#dec-features-hint").hidden = resolvable;
+}
+
+// The Test button and the "is a source usable?" check both ignore the master
+// switch — you can verify a key before turning anything on.
+function withDecisionsEnabled() {
+  return { ...config, decisions: { ...decisions(), enabled: true } };
+}
+
+async function runDecisionTest(btn, statusEl) {
+  const src = resolveSource(withDecisionsEnabled());
+  statusEl.hidden = false;
+  if (!src) {
+    statusEl.innerHTML = `<span class="test-line fail">Pick a key source above and make sure its key is filled in.</span>`;
+    return;
+  }
+  btn.disabled = true;
+  statusEl.innerHTML = `<span class="test-line muted">Asking <code>${escapeHtml(src.model)}</code> two questions with known answers…</span>`;
+  try {
+    const r = await testDecisions(src);
+    const icon = { ok: "✓", warn: "⚠", fail: "✗" };
+    const line = (label, res) =>
+      `<span class="test-line ${res.status}">${icon[res.status]} <strong>${label}</strong> — ${escapeHtml(res.detail)}</span>`;
+    let verdict = "";
+    if (r.auth.status !== "ok") {
+      verdict = `<span class="test-line fail">No answer from the endpoint — every check would fall back to the built-in ones.</span>`;
+    } else if (r.noul.status === "ok" && r.choice.status === "ok") {
+      verdict = `<span class="test-line ${r.latencyMs.status === "ok" ? "ok" : "warn"}">Smart checks work with this key and model.${
+        r.latencyMs.status === "ok" ? "" : " Latency is above the budget for checks before an action, so those may be slow."
+      }</span>`;
+    } else {
+      verdict = `<span class="test-line warn">The endpoint answered, but not with the expected answers — check the model id.</span>`;
+    }
+    statusEl.innerHTML = [
+      line("Auth", r.auth),
+      line("Yes-no", r.noul),
+      line("Choice", r.choice),
+      line("Latency", r.latencyMs),
+      verdict,
+    ].join("");
+  } catch (e) {
+    statusEl.innerHTML = `<span class="test-line fail">Test failed: ${escapeHtml(String(e.message || e))}</span>`;
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 // -------------------------------------------------------------------------
