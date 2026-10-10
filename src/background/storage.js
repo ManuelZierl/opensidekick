@@ -3,7 +3,16 @@
 // they are never sent anywhere except directly to the provider endpoint the
 // user configured.
 
-import { STORAGE_KEY, TASK_RUNS_KEY, DEFAULT_CONFIG, DEFAULT_SETTINGS } from "../common/constants.js";
+import {
+  STORAGE_KEY,
+  TASK_RUNS_KEY,
+  DEFAULT_CONFIG,
+  DEFAULT_SETTINGS,
+  SESSIONS_INDEX_KEY,
+  SESSION_BODY_PREFIX,
+  PROMPT_HISTORY_KEY,
+} from "../common/constants.js";
+import { readIndex, emptyIndex } from "./sessions.js";
 
 export async function loadConfig() {
   const raw = await chrome.storage.local.get(STORAGE_KEY);
@@ -77,4 +86,56 @@ export async function setSitePermission(origin, value) {
   }
   await saveConfig(config);
   return config;
+}
+
+// Chat history: an index key plus one key per chat body (see SESSIONS_INDEX_KEY).
+// The service worker is the only writer; it serializes these calls itself.
+export async function loadSessionIndex() {
+  try {
+    const raw = await chrome.storage.local.get(SESSIONS_INDEX_KEY);
+    return readIndex(raw[SESSIONS_INDEX_KEY]);
+  } catch {
+    return emptyIndex();
+  }
+}
+
+export async function loadSessionBody(id) {
+  try {
+    const raw = await chrome.storage.local.get(SESSION_BODY_PREFIX + id);
+    const body = raw[SESSION_BODY_PREFIX + id];
+    if (!body || !Array.isArray(body.messages)) return null;
+    return body.trimmed ? { id, messages: body.messages, trimmed: true } : { id, messages: body.messages };
+  } catch {
+    return null;
+  }
+}
+
+// One set() for the index and the body, so a worker killed mid-save can't
+// leave one updated without the other. Rejects on quota errors, which the
+// caller handles.
+export async function writeSession(index, body) {
+  const items = { [SESSIONS_INDEX_KEY]: index };
+  if (body) items[SESSION_BODY_PREFIX + body.id] = body;
+  await chrome.storage.local.set(items);
+}
+
+export async function writeSessionIndex(index) {
+  await chrome.storage.local.set({ [SESSIONS_INDEX_KEY]: index });
+}
+
+export async function removeSessionBodies(ids) {
+  if (!ids || !ids.length) return;
+  await chrome.storage.local.remove(ids.map((id) => SESSION_BODY_PREFIX + id));
+}
+
+// getKeys() only exists in newer Chrome; reading everything once is the fallback.
+export async function listLocalKeys() {
+  if (typeof chrome.storage.local.getKeys === "function") return await chrome.storage.local.getKeys();
+  return Object.keys(await chrome.storage.local.get(null));
+}
+
+// Every saved chat and the prompt history, as the "keep history" switch promises.
+export async function clearAllHistory() {
+  const bodies = (await listLocalKeys()).filter((k) => k.startsWith(SESSION_BODY_PREFIX));
+  await chrome.storage.local.remove([SESSIONS_INDEX_KEY, PROMPT_HISTORY_KEY, ...bodies]);
 }

@@ -31,6 +31,27 @@ export const PROMPT_HISTORY_MAX = 50;
 // switched while it was closed.
 export const SESSION_MODEL_KEY = "opensidekick.lastModel.v1";
 
+// Chat history in chrome.storage.local: a small index of saved chats plus one
+// key per chat body, so each write (and each storage.onChanged broadcast)
+// covers one chat rather than all of them. The version sits before the id so
+// every body shares one prefix that the index key can't match.
+export const SESSIONS_INDEX_KEY = "opensidekick.sessions.v1";
+export const SESSION_BODY_PREFIX = "opensidekick.session.v1.";
+export const SESSIONS_MAX = 20;
+
+// chrome.storage.session key for { id, sensitive }: which saved chat the hot
+// copy under SESSION_CONVO_KEY belongs to.
+export const SESSION_CONVO_META_KEY = "opensidekick.conversationMeta.v1";
+
+// chrome.storage.local flag: the one-time "chats are now saved" note has been
+// shown. Not part of chat history, so clearing history leaves it alone.
+export const HISTORY_NOTICE_KEY = "opensidekick.historyNotice.v1";
+
+// Transcript notes about chat history, shared by the worker and the side panel.
+export const SENSITIVE_NOTE = "This chat used a banking, payment or crypto site, so it won't be saved to History.";
+export const HISTORY_NOTICE = "Chats are now saved on this device. Manage in Settings → Chat history.";
+export const TRIMMED_NOTE = "Older messages in this chat weren't kept.";
+
 // Provider "type" determines which wire protocol we speak.
 //   "openai"    -> POST {baseUrl}/chat/completions   (OpenRouter, OpenAI, Ollama,
 //                  Groq, Venice AI, Together, DeepSeek, LM Studio, Google's
@@ -191,6 +212,9 @@ export const DEFAULT_SETTINGS = {
   maxTokens: 4096,
   // Temperature for OpenAI-style requests (ignored by Anthropic newer models).
   temperature: 0.4,
+  // Chat history and prompt history in chrome.storage.local. Raw readers treat
+  // anything except false as on.
+  keepHistory: true,
 };
 
 export const DEFAULT_CONFIG = {
@@ -269,6 +293,12 @@ export const MSG = {
   START_RECORDING: "start_recording",
   STOP_RECORDING: "stop_recording",
   GET_STATE: "get_state",
+  // side panel / options -> worker: chat history
+  LIST_SESSIONS: "list_sessions",
+  OPEN_SESSION: "open_session",
+  RENAME_SESSION: "rename_session",
+  DELETE_SESSION: "delete_session",
+  CLEAR_SESSIONS: "clear_sessions",
   // worker -> side panel
   AGENT_EVENT: "agent_event", // { kind, ... } streamed progress
   PERMISSION_REQUEST: "permission_request",

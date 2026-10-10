@@ -14,6 +14,22 @@ backend server operated by the project and collects no analytics or telemetry.
   the assistant to work on is read on demand and sent **to the LLM provider you
   configured** so the model can understand and act on the page.
 - **Your messages** to the assistant are sent to that same provider.
+- **Chat history** (on by default; Settings → Chat history) is stored in
+  `chrome.storage.local`: your 20 most recent chats, each with a title, when it
+  was started and last used, the model id and provider name that answered, and
+  the text of your messages and the assistant's replies (up to about 200 KB per
+  chat; the oldest messages are dropped first). Your messages are kept as you
+  typed them, so a password or key you paste into one is saved with the chat:
+  delete that chat afterwards. It does not store screenshots, the page text or
+  element maps the assistant read, or the actions it took. A chat in which the
+  assistant reads (including by running JavaScript on the page), opens,
+  switches to or screenshots a site on the built-in sensitive-site list (banks,
+  payment processors, crypto exchanges) is never saved, and is removed if an
+  earlier part of it had been saved. Your last 50 prompts are also kept, so ↑
+  in the chat box can recall them. Turning chat history off deletes both and
+  stops saving them; the chat that is open stays in memory until Chrome closes. History is never sent anywhere — but when you
+  continue a saved chat, its earlier messages go to the provider you are using
+  at that moment, which may not be the one that answered before.
 
 ## Where data goes
 
@@ -86,7 +102,8 @@ Smart checks disabled.
   assistant at, and to call the model provider / local endpoint you configure.
 - **`scripting` / `activeTab` / `tabs`**: to read the current page and perform
   actions across tabs on your behalf.
-- **`storage`**: to save your providers, keys, and preferences locally.
+- **`storage`**: to save your providers, keys, preferences and, unless you turn it
+  off, chat history locally.
 - **`sidePanel`**: to show the assistant UI.
 - **`contextMenus` / `notifications`**: right-click actions and status.
 
@@ -94,6 +111,9 @@ Smart checks disabled.
 
 - Remove a provider or key at any time in Settings.
 - Manage or revoke per-site permissions in Settings → Site permissions.
+- Delete a saved chat from the side panel's History menu, or all of them with
+  **Clear all** there or in Settings → Chat history. Turn chat history off to
+  delete it and stop saving.
 - Uninstalling the extension deletes all locally stored data.
 
 ## Contact

@@ -166,6 +166,7 @@ export async function runAgent(deps) {
       conversation.push({ role: "assistant", content: planToText(plan) });
       conversation.push({
         role: "user",
+        internal: true, // the approval click, not something the user typed — hide from transcripts
         content:
           "I approve this plan. Carry it out now. You may act on these sites without asking: " +
           (plan.domains.join(", ") || "(the current site)") +
@@ -476,7 +477,7 @@ export async function runAgent(deps) {
       // message once every tool result for this turn is recorded.
       if (toolResult && toolResult.image) {
         pendingImages.push(toolResult.image);
-        toolResult = { ok: true, note: toolResult.note || "Image attached below." };
+        toolResult = { ok: true, url: toolResult.url, note: toolResult.note || "Image attached below." };
       }
 
       // (B) Track the observed origin and flag suspected prompt injection so the

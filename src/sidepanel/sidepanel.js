@@ -1,8 +1,20 @@
 // Side panel UI controller. Talks to the service worker via runtime messages
 // and renders the streaming agent transcript.
 
-import { MSG, STORAGE_KEY, SESSION_PENDING_WF_KEY, SESSION_MODEL_KEY, PROMPT_HISTORY_KEY, PROMPT_HISTORY_MAX } from "../common/constants.js";
+import {
+  MSG,
+  STORAGE_KEY,
+  SESSION_PENDING_WF_KEY,
+  SESSION_MODEL_KEY,
+  PROMPT_HISTORY_KEY,
+  PROMPT_HISTORY_MAX,
+  SESSIONS_INDEX_KEY,
+  SESSIONS_MAX,
+  SENSITIVE_NOTE,
+  TRIMMED_NOTE,
+} from "../common/constants.js";
 import { matchPrompts, isSlashQuery } from "../common/prompts.js";
+import { relativeTime } from "../background/sessions.js";
 
 const els = {
   messages: document.getElementById("messages"),
@@ -20,6 +32,10 @@ const els = {
   slashMenu: document.getElementById("slash-menu"),
   recordBtn: document.getElementById("record-btn"),
   workflowsBtn: document.getElementById("workflows-btn"),
+  historyBtn: document.getElementById("history-btn"),
+  histMenu: document.getElementById("hist-menu"),
+  histBody: document.querySelector("#hist-menu .hist-body"),
+  histStatus: document.querySelector("#hist-menu .hist-status"),
   recBanner: document.getElementById("rec-banner"),
   wfMenu: document.getElementById("wf-menu"),
   autonomy: document.getElementById("autonomy"),
@@ -37,6 +53,9 @@ let recCount = 0;
 let recGen = 0; // bumped on every start/stop so a slow START_RECORDING reply can't
 // resurrect the banner after the user already stopped.
 let configured = false;
+// Settings → "Keep chat history on this device". Off: ↑ recall still works for
+// this panel's lifetime, but prompts aren't written to storage.
+let keepHistory = true;
 
 let running = false;
 // Whether the next send should start a fresh conversation. Starts FALSE so that
@@ -69,6 +88,7 @@ async function init() {
 
   els.recordBtn.addEventListener("click", toggleRecording);
   els.workflowsBtn.addEventListener("click", toggleWorkflowsMenu);
+  wireHistoryMenu();
   els.autonomy.querySelectorAll(".seg").forEach((btn) =>
     btn.addEventListener("click", () => setAutonomy(btn.dataset.mode)),
   );
@@ -81,6 +101,13 @@ async function init() {
       refreshConfigured();
       refreshContextHint(); // site rules may have changed
     }
+    // A clear from anywhere (History, Settings, the switch) empties ↑ recall.
+    if (area === "local" && changes[PROMPT_HISTORY_KEY]) {
+      const next = changes[PROMPT_HISTORY_KEY].newValue;
+      promptHistory = Array.isArray(next) ? next : [];
+      if (histIndex >= promptHistory.length) exitHistory();
+    }
+    if (area === "local" && (changes[SESSIONS_INDEX_KEY] || changes[STORAGE_KEY])) refreshHistoryMenu(true);
   });
 
   // Keep the site chip current as the user moves between tabs/pages.
@@ -129,15 +156,9 @@ function applyState(state) {
   // lives in the worker (persisted across its restarts), like Claude's panel.
   if (state.history && state.history.length && !els.messages.querySelector(".msg")) {
     els.empty.hidden = true;
-    for (const m of state.history) {
-      if (m.role === "user") addUserMessage(m.text);
-      else {
-        const el = document.createElement("div");
-        el.className = "msg assistant";
-        el.innerHTML = renderMarkdown(m.text);
-        els.messages.appendChild(el);
-      }
-    }
+    if (state.trimmed) addNote(TRIMMED_NOTE, "dot");
+    renderHistory(state.history);
+    if (state.sensitive) addNote(SENSITIVE_NOTE, "shield");
     scroll();
   }
   if (state.seed) {
@@ -153,6 +174,19 @@ function applyState(state) {
     els.recordBtn.classList.add("recording");
     els.empty.hidden = true;
     updateRecBanner();
+  }
+}
+
+// The chat's visible turns, as the worker projects them ({ role, text }).
+function renderHistory(history) {
+  for (const m of history) {
+    if (m.role === "user") addUserMessage(m.text);
+    else {
+      const el = document.createElement("div");
+      el.className = "msg assistant";
+      el.innerHTML = renderMarkdown(m.text);
+      els.messages.appendChild(el);
+    }
   }
 }
 
@@ -177,6 +211,14 @@ async function refreshConfigured() {
   const provider = (cfg.providers || []).find((p) => p.id === cfg.activeProviderId);
   updateConfiguredUI(!!(provider && cfg.activeModel));
   setAutonomyUI((cfg.settings && cfg.settings.autonomy) || "ask");
+  const wasKeeping = keepHistory;
+  keepHistory = cfg.settings?.keepHistory !== false;
+  // Prompts typed while history was off stay off disk: the next remembered
+  // prompt writes the whole list, so start it afresh.
+  if (!wasKeeping && keepHistory) {
+    promptHistory = [];
+    exitHistory();
+  }
   const pair = provider && cfg.activeModel ? { providerId: provider.id, model: cfg.activeModel } : null;
   renderModelChip(pair && pair.model, provider && provider.name);
   // Serialised: the first call reads the stored pair, and a storage change
@@ -372,7 +414,7 @@ async function setSiteRule(origin, rule) {
   }
 }
 
-function onSubmit(e) {
+async function onSubmit(e) {
   e.preventDefault();
   const text = els.input.value.trim();
   if (!text || running) return;
@@ -391,20 +433,47 @@ function onSubmit(e) {
   els.input.value = "";
   autoGrow();
   refreshContextHint();
-  send({ type: MSG.RUN_TASK, task: text, newChat: newChatPending });
+  const wasPending = newChatPending;
+  const reply = send({ type: MSG.RUN_TASK, task: text, newChat: wasPending });
   newChatPending = false;
   setRunning(true);
+  // Stop, New chat, then a quick send can land while the stopped run is still
+  // saving. Hand the prompt back instead of dropping it.
+  const res = await reply;
+  if (res && res.ok === false && res.error === "A task is already running.") {
+    if (!els.input.value) {
+      els.input.value = text;
+      autoGrow();
+    }
+    newChatPending = wasPending;
+    els.empty.hidden = !!els.messages.querySelector(".msg");
+    setRunning(false);
+  }
 }
 
 function newChat() {
   if (running) send({ type: MSG.STOP_TASK });
   send({ type: MSG.NEW_CHAT }); // clear the worker's (persisted) conversation now
-  els.messages.querySelectorAll(".msg, .log, .note, .alert, .perm-card, .thinking").forEach((n) => n.remove());
+  clearTranscript();
   els.empty.hidden = false;
   newChatPending = true;
+}
+
+function clearTranscript() {
+  els.messages.querySelectorAll(".msg, .log, .note, .alert, .perm-card, .thinking").forEach((n) => n.remove());
   current = null;
   pendingTools = [];
   logGroup = null;
+  pinned = true;
+  els.jumpLatest.hidden = true;
+}
+
+// The worker dropped the live chat (Clear all, or the open chat was deleted).
+// The next send continues the worker's fresh chat, so nothing is armed here.
+function resetChatView() {
+  clearTranscript();
+  els.empty.hidden = false;
+  newChatPending = false;
 }
 
 // -------------------------------------------------------------------------
@@ -452,6 +521,12 @@ function handleEvent(ev) {
     case "warning":
       addWarning(ev.text);
       break;
+    case "note":
+      addNote(ev.text, ev.icon || "dot");
+      break;
+    case "chat_reset":
+      resetChatView();
+      break;
     case "error":
       addError(ev.error);
       setRunning(false);
@@ -470,7 +545,9 @@ function handleEvent(ev) {
 }
 
 function setRunning(v) {
+  const changed = running !== v;
   running = v;
+  if (changed) refreshHistoryMenu(true);
   els.send.disabled = v;
   els.stop.hidden = !v;
   els.send.hidden = v;
@@ -836,7 +913,7 @@ function rememberPrompt(text) {
   if (promptHistory[promptHistory.length - 1] === text) return; // consecutive dupe
   promptHistory.push(text);
   if (promptHistory.length > PROMPT_HISTORY_MAX) promptHistory = promptHistory.slice(-PROMPT_HISTORY_MAX);
-  chrome.storage.local.set({ [PROMPT_HISTORY_KEY]: promptHistory }).catch(() => {});
+  if (keepHistory) chrome.storage.local.set({ [PROMPT_HISTORY_KEY]: promptHistory }).catch(() => {});
 }
 
 function exitHistory() {
@@ -1048,6 +1125,7 @@ async function restorePendingWorkflow() {
 
 function toggleWorkflowsMenu() {
   if (!els.wfMenu.hidden) return hideWorkflowsMenu();
+  hideHistoryMenu(false);
   loadWorkflows().then(renderWorkflowsMenu);
   document.addEventListener("mousedown", wfOutside, true);
 }
@@ -1116,6 +1194,318 @@ async function saveWorkflow(wf) {
   } catch (e) {
     addError("Couldn't save workflow: " + (e.message || e));
   }
+}
+
+// -------------------------------------------------------------------------
+// Chat history — the popover behind the History button. Built on the
+// workflows menu's pattern (positioned under the top bar, outside click
+// closes, opening one closes the other). The worker owns every write; this
+// only sends messages and renders what LIST_SESSIONS returns.
+// -------------------------------------------------------------------------
+let histItems = []; // the items last rendered, newest first
+
+const HIST_STATUS = {
+  busy: "A task is running. Try again when it finishes.",
+  "not-found": "That chat is no longer saved.",
+};
+const statusFor = (error) => HIST_STATUS[error] || "Something went wrong. Try again.";
+
+function wireHistoryMenu() {
+  els.historyBtn.addEventListener("click", toggleHistoryMenu);
+  els.histBody.addEventListener("click", onHistoryClick);
+  els.histMenu.addEventListener("keydown", onHistoryKeydown);
+  // Tabbing (or clicking) to something outside closes it. A null relatedTarget
+  // is focus going nowhere (a re-render removed the button, or the window lost
+  // focus), which isn't the user leaving.
+  els.histMenu.addEventListener("focusout", (e) => {
+    const to = e.relatedTarget;
+    if (to && !els.histMenu.contains(to) && !els.historyBtn.contains(to)) hideHistoryMenu(false);
+  });
+}
+
+async function toggleHistoryMenu() {
+  if (!els.histMenu.hidden) return hideHistoryMenu(false);
+  hideWorkflowsMenu();
+  histStatus("");
+  renderHistoryMenu(await listSessions());
+  els.histMenu.style.top = `${Math.round(document.querySelector(".topbar").getBoundingClientRect().bottom) + 4}px`;
+  els.histMenu.hidden = false;
+  els.historyBtn.setAttribute("aria-expanded", "true");
+  document.addEventListener("mousedown", histOutside, true);
+  document.addEventListener("keydown", histEscape);
+  const current = els.histBody.querySelector(".hist-item.current .hist-open:not(:disabled)");
+  (current || els.histBody.querySelector(".hist-open:not(:disabled)") || firstHistFocusable()).focus();
+}
+
+function histOutside(e) {
+  if (els.histMenu.contains(e.target) || els.historyBtn.contains(e.target)) return;
+  hideHistoryMenu(false);
+}
+
+// Esc from anywhere while it is open; the rename field and the inline confirms
+// handle their own Esc and stop it before it gets here.
+function histEscape(e) {
+  if (e.key !== "Escape" || e.defaultPrevented) return;
+  e.preventDefault();
+  hideHistoryMenu(true);
+}
+
+function hideHistoryMenu(returnFocus) {
+  if (els.histMenu.hidden) return;
+  els.histMenu.hidden = true;
+  els.historyBtn.setAttribute("aria-expanded", "false");
+  document.removeEventListener("mousedown", histOutside, true);
+  document.removeEventListener("keydown", histEscape);
+  if (returnFocus) els.historyBtn.focus();
+}
+
+function histStatus(text) {
+  els.histStatus.textContent = text;
+}
+
+async function listSessions() {
+  const res = await send({ type: MSG.LIST_SESSIONS });
+  return res && res.ok ? res : null;
+}
+
+function firstHistFocusable() {
+  return els.histMenu.querySelector("button:not(:disabled), input") || els.histMenu;
+}
+
+// Focus a control in a row by chat id (or, with no id, a control outside the
+// rows such as Clear all), or the first focusable when it is gone.
+function focusHist(id, cls = "hist-open") {
+  const row = id ? [...els.histBody.querySelectorAll(".hist-item")].find((li) => li.dataset.id === id) : null;
+  const el = id ? row && row.querySelector(`.${cls}`) : els.histBody.querySelector(`.${cls}`);
+  (el && !el.disabled ? el : firstHistFocusable()).focus();
+}
+
+// Re-lists and re-renders .hist-body only. A passive refresh (storage changed,
+// a run started or ended) is skipped while the popover is closed or a rename
+// or confirm is open, and keeps focus on the same control.
+async function refreshHistoryMenu(passive = false) {
+  const editing = () => !!els.histBody.querySelector(".hist-confirm, .hist-rename-input");
+  if (passive && (els.histMenu.hidden || editing())) return;
+  const res = await listSessions();
+  if (passive && editing()) return;
+  const a = document.activeElement;
+  const keep = passive && els.histBody.contains(a)
+    ? { id: a.closest(".hist-item")?.dataset.id, cls: ["hist-open", "hist-rename", "hist-delete", "hist-clear", "hist-settings"].find((c) => a.classList.contains(c)) }
+    : null;
+  renderHistoryMenu(res);
+  if (keep) focusHist(keep.id, keep.cls);
+}
+
+function renderHistoryMenu(res) {
+  histItems = (res && res.items) || [];
+  if (!res) {
+    els.histBody.innerHTML = `<p class="hist-empty">Something went wrong. Try again.</p>`;
+    return;
+  }
+  if (!res.enabled) {
+    els.histBody.innerHTML = `<div class="hist-off"><p>Chat history is off, so chats aren't kept after Chrome closes.</p><button type="button" class="hist-settings">Turn on in Settings</button></div>`;
+    return;
+  }
+  if (!histItems.length) {
+    els.histBody.innerHTML = `<p class="hist-empty">No saved chats yet. A chat is saved here after its first message.</p>`;
+    return;
+  }
+  // Switching or deleting mid-run would kill the task or leave it writing into
+  // a chat that's no longer on screen. Rename is harmless, so it stays.
+  const busy = !!res.running || running;
+  const dis = busy ? " disabled" : "";
+  const rows = histItems
+    .map((it) => {
+      const cur = it.id === res.currentId;
+      const title = escapeHtml(it.title);
+      const who = it.model ? (it.provider ? `${it.model} via ${it.provider}` : it.model) : "";
+      const tip = escapeHtml(`${it.title}\n${new Date(it.updatedAt).toLocaleString()}${who ? ` · ${who}` : ""}`).replace(/\n/g, "&#10;");
+      const model = it.model ? `<span aria-hidden="true">·</span><span class="hist-model">${escapeHtml(it.model)}</span>` : "";
+      return (
+        `<li class="hist-item${cur ? " current" : ""}" data-id="${escapeHtml(it.id)}">` +
+        `<button type="button" class="hist-open"${cur ? ' aria-current="true"' : ""} title="${tip}"${dis}>` +
+        `<span class="hist-title">${title}</span>` +
+        `<span class="hist-meta"><span class="hist-time">${escapeHtml(relativeTime(it.updatedAt))}</span>${model}</span></button>` +
+        `<button type="button" class="icon-btn hist-rename" title="Rename" aria-label="Rename chat “${title}”">${ic("pencil")}</button>` +
+        `<button type="button" class="icon-btn hist-delete" title="Delete" aria-label="Delete chat “${title}”"${dis}>${ic("trash")}</button>` +
+        `</li>`
+      );
+    })
+    .join("");
+  els.histBody.innerHTML =
+    `<div class="hist-head"><span class="eyebrow">Recent chats</span><span class="mono hist-count">${histItems.length} of ${SESSIONS_MAX}</span></div>` +
+    (busy ? `<p class="hist-busy">Switching and deleting chats is paused while a task runs.</p>` : "") +
+    `<ul class="hist-list" aria-label="Saved chats">${rows}</ul>` +
+    `<div class="hist-foot"><span class="hist-note">Saved on this device only.</span><button type="button" class="hist-clear"${dis}>Clear all</button></div>`;
+}
+
+function onHistoryClick(e) {
+  const btn = e.target.closest("button");
+  if (!btn || btn.disabled) return;
+  const li = btn.closest(".hist-item");
+  if (btn.classList.contains("hist-open")) openSession(li.dataset.id);
+  else if (btn.classList.contains("hist-rename")) startRename(li);
+  else if (btn.classList.contains("hist-delete")) confirmDelete(li);
+  else if (btn.classList.contains("hist-clear")) confirmClear();
+  else if (btn.classList.contains("hist-settings")) chrome.runtime.openOptionsPage();
+}
+
+// ↑/↓ move between chats; Tab keeps its natural order (open, rename, delete).
+function onHistoryKeydown(e) {
+  if ((e.key !== "ArrowDown" && e.key !== "ArrowUp") || !e.target.classList.contains("hist-open")) return;
+  e.preventDefault();
+  const opens = [...els.histBody.querySelectorAll(".hist-open:not(:disabled)")];
+  const i = opens.indexOf(e.target) + (e.key === "ArrowDown" ? 1 : -1);
+  opens[Math.max(0, Math.min(opens.length - 1, i))]?.focus();
+}
+
+async function openSession(id) {
+  if (els.histBody.querySelector(".hist-item.current")?.dataset.id === id) {
+    hideHistoryMenu(false); // already the open chat
+    els.input.focus();
+    return;
+  }
+  const res = await send({ type: MSG.OPEN_SESSION, id });
+  if (!res || !res.ok) {
+    histStatus(statusFor(res && res.error));
+    if (res && (res.error === "not-found" || res.error === "disabled")) refreshHistoryMenu();
+    return;
+  }
+  hideHistoryMenu(false);
+  // Same as New chat: this also drops a parked "Save this workflow?" card,
+  // which comes back from storage.session the next time the panel opens.
+  clearTranscript();
+  newChatPending = false; // otherwise the next send would discard the chat just opened
+  const history = res.history || [];
+  if (res.trimmed) addNote(TRIMMED_NOTE, "dot");
+  renderHistory(history);
+  els.empty.hidden = history.length > 0;
+  scroll();
+  els.input.focus();
+}
+
+function startRename(li) {
+  const id = li.dataset.id;
+  const item = histItems.find((it) => it.id === id);
+  const open = li.querySelector(".hist-open");
+  if (!item || !open) return;
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "hist-rename-input";
+  input.maxLength = 80;
+  input.setAttribute("aria-label", "Chat name");
+  input.value = item.title;
+  open.replaceWith(input);
+  input.focus();
+  input.select();
+  let done = false;
+  // After a blur the user has already moved on, so focus stays where they put it.
+  const revert = (refocus) => {
+    done = true;
+    input.replaceWith(open);
+    if (refocus) open.focus();
+  };
+  const commit = async (byKey) => {
+    if (done) return;
+    const title = input.value.trim();
+    if (!title || title === item.title) return revert(byKey);
+    done = true;
+    // After a blur the click that caused it may have opened a confirm or
+    // another rename, so put the row back now and refresh only passively.
+    if (!byKey) input.replaceWith(open);
+    const res = await send({ type: MSG.RENAME_SESSION, id, title });
+    if (res && res.ok) {
+      item.title = res.title;
+      open.querySelector(".hist-title").textContent = res.title; // in case the refresh is skipped
+    }
+    await refreshHistoryMenu(!byKey);
+    if (byKey || !document.activeElement || document.activeElement === document.body) focusHist(id);
+    histStatus(res && res.ok ? "Chat renamed." : statusFor(res && res.error));
+  };
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      commit(true);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation(); // the popover stays open
+      revert(true);
+    }
+  });
+  input.addEventListener("blur", () => commit(false));
+}
+
+// Swaps `host`'s contents for an inline "are you sure?" with focus on Cancel,
+// the least destructive choice. Esc cancels too.
+function inlineConfirm(host, question, yesLabel, onYes, onCancel) {
+  const before = host.innerHTML;
+  host.innerHTML =
+    `<div class="hist-confirm"><span>${escapeHtml(question)}</span>` +
+    `<button type="button" class="danger hist-confirm-yes">${escapeHtml(yesLabel)}</button>` +
+    `<button type="button" class="hist-confirm-no">Cancel</button></div>`;
+  const box = host.querySelector(".hist-confirm");
+  const cancel = () => {
+    host.innerHTML = before;
+    onCancel();
+  };
+  box.querySelector(".hist-confirm-no").addEventListener("click", cancel);
+  box.querySelector(".hist-confirm-yes").addEventListener("click", async () => {
+    box.querySelectorAll("button").forEach((b) => (b.disabled = true));
+    if ((await onYes()) === false) cancel();
+  });
+  box.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    e.preventDefault();
+    e.stopPropagation();
+    cancel();
+  });
+  box.querySelector(".hist-confirm-no").focus();
+}
+
+function confirmDelete(li) {
+  const id = li.dataset.id;
+  const ids = histItems.map((it) => it.id);
+  const at = ids.indexOf(id);
+  inlineConfirm(
+    li,
+    "Delete this chat?",
+    "Delete",
+    async () => {
+      const res = await send({ type: MSG.DELETE_SESSION, id });
+      if (!res || !res.ok) {
+        histStatus(statusFor(res && res.error));
+        return false; // busy: the list stays as it was
+      }
+      if (res.wasCurrent) resetChatView(); // the worker's chat_reset says the same
+      await refreshHistoryMenu();
+      focusHist(ids[at + 1] || ids[at - 1]);
+      histStatus("Chat deleted.");
+    },
+    () => li.querySelector(".hist-delete")?.focus(),
+  );
+}
+
+function confirmClear() {
+  const foot = els.histBody.querySelector(".hist-foot");
+  if (!foot) return;
+  const n = histItems.length;
+  inlineConfirm(
+    foot,
+    `Delete all ${n} saved chat${n === 1 ? "" : "s"} and your prompt history? The open chat is cleared too.`,
+    "Delete all",
+    async () => {
+      const res = await send({ type: MSG.CLEAR_SESSIONS });
+      if (!res || !res.ok) {
+        histStatus(statusFor(res && res.error));
+        return false;
+      }
+      resetChatView(); // the worker's chat_reset says the same
+      await refreshHistoryMenu();
+      firstHistFocusable().focus();
+      histStatus("History cleared.");
+    },
+    () => foot.querySelector(".hist-clear")?.focus(),
+  );
 }
 
 function autoGrow() {

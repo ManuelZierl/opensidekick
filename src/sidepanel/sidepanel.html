@@ -60,6 +60,19 @@
       <symbol id="ic-send" viewBox="0 0 24 24">
         <path d="M12 19V5M5.5 11.5 12 5l6.5 6.5" />
       </symbol>
+      <symbol id="ic-history" viewBox="0 0 24 24">
+        <path d="M4.5 12a7.5 7.5 0 1 0 2.4-5.5" />
+        <path d="M4.2 4.8v3.4h3.4" />
+        <path d="M12 8.2v4.1l2.7 1.7" />
+      </symbol>
+      <symbol id="ic-pencil" viewBox="0 0 24 24">
+        <path d="M14.5 5.5l4 4L9 19H5v-4z" />
+        <path d="M12.5 7.5l4 4" />
+      </symbol>
+      <symbol id="ic-trash" viewBox="0 0 24 24">
+        <path d="M4.5 7h15M10 4.5h4M6.5 7l.8 11.2a1.5 1.5 0 0 0 1.5 1.3h6.4a1.5 1.5 0 0 0 1.5-1.3L17.5 7" />
+        <path d="M10 10.5v6M14 10.5v6" />
+      </symbol>
     </svg>
 
     <header class="topbar">
@@ -74,6 +87,10 @@
         <button id="workflows-btn" class="icon-btn" title="Saved workflows" aria-label="Saved workflows">
           <svg class="ic"><use href="#ic-workflows" /></svg>
         </button>
+        <button id="history-btn" class="icon-btn" title="Chat history" aria-label="Chat history"
+                aria-haspopup="dialog" aria-expanded="false" aria-controls="hist-menu">
+          <svg class="ic"><use href="#ic-history" /></svg>
+        </button>
         <button id="new-chat" class="icon-btn" title="New chat" aria-label="New chat">
           <svg class="ic"><use href="#ic-plus" /></svg>
         </button>
@@ -81,7 +98,7 @@
           <svg class="ic"><use href="#ic-settings" /></svg>
         </button>
       </div>
-      <!-- Its own line: at 360px the brand and four buttons leave too little
+      <!-- Its own line: at 360px the brand and five buttons leave too little
            room beside them for a model id to be readable. -->
       <div id="model-line" class="model-line" hidden>
         <button type="button" id="model-chip" class="chip model-chip"><span class="mc-model"></span><span class="mc-sep" aria-hidden="true">·</span><span class="mc-provider"></span></button>
@@ -89,6 +106,13 @@
     </header>
 
     <div id="wf-menu" class="wf-menu" hidden></div>
+    <!-- A non-modal dialog, not a menu: rows hold several buttons and an inline
+         rename field. Only .hist-body is re-rendered, so the status line stays
+         put and screen readers announce it. -->
+    <div id="hist-menu" class="wf-menu hist-menu" role="dialog" aria-label="Chat history" tabindex="-1" hidden>
+      <div class="hist-body"></div>
+      <p class="hist-status" role="status"></p>
+    </div>
     <div id="rec-banner" class="rec-banner" hidden></div>
     <div id="status-bar" class="status-bar" hidden></div>
 

@@ -595,6 +595,16 @@ input[type="radio"] {
   color: var(--os-bad-ink);
 }
 
+/* Chat history --------------------------------------------------------- */
+
+/* The count on the left, Clear history on the right. */
+.history-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 /* Lists (prompts, schedules, workflows, MCP) --------------------------- */
 
 .stack {

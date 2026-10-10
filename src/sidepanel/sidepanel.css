@@ -239,6 +239,202 @@ body {
   color: var(--os-muted);
 }
 
+/* History: the workflows popover at full width, so titles have room. */
+.hist-menu {
+  left: 8px;
+  right: 8px;
+  max-width: none;
+  max-height: min(420px, calc(100vh - 96px));
+}
+.hist-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px 4px;
+}
+.hist-count {
+  color: var(--os-muted);
+}
+.hist-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.hist-item {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: var(--os-r);
+}
+.hist-item:hover,
+.hist-item:focus-within {
+  background: var(--os-hover);
+}
+.hist-open {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 44px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--os-r);
+  background: transparent;
+  color: var(--os-ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.hist-title {
+  font-size: var(--os-fs-13);
+  line-height: var(--os-lh-13);
+  font-weight: var(--os-w-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hist-item.current .hist-title {
+  color: var(--os-accent-ink);
+  font-weight: var(--os-w-semibold);
+}
+.hist-meta {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--os-fs-12);
+  line-height: var(--os-lh-12);
+  color: var(--os-muted);
+  white-space: nowrap;
+}
+.hist-time {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+}
+.hist-model {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--os-mono);
+}
+.hist-item .icon-btn {
+  flex: 0 0 auto;
+}
+.hist-item .hist-delete:hover:not(:disabled) {
+  color: var(--os-bad-ink);
+  background: var(--os-bad-soft);
+}
+.hist-item button:disabled,
+.hist-foot button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.hist-rename-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 36px;
+  margin: 4px;
+  padding: 0 8px;
+  border: 1px solid var(--os-accent);
+  border-radius: var(--os-r);
+  background: var(--os-surface);
+  color: var(--os-ink);
+  font: inherit;
+  font-size: var(--os-fs-13);
+  box-shadow: 0 0 0 3px var(--os-accent-ring);
+  outline: none;
+}
+.hist-confirm {
+  flex: 1 1 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  font-size: var(--os-fs-13);
+  line-height: var(--os-lh-13);
+  color: var(--os-ink);
+}
+.hist-confirm > span {
+  flex: 1 1 auto;
+}
+/* Clear all's confirm takes the footer's place; the footer already pads it. */
+.hist-foot .hist-confirm {
+  padding: 0;
+}
+.hist-confirm button,
+.hist-off button,
+.hist-foot button {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--os-line-2);
+  border-radius: var(--os-r);
+  background: var(--os-surface);
+  color: var(--os-ink);
+  font: inherit;
+  font-size: var(--os-fs-12);
+  font-weight: var(--os-w-semibold);
+  cursor: pointer;
+}
+.hist-confirm button:hover,
+.hist-off button:hover {
+  background: linear-gradient(var(--os-hover), var(--os-hover)) var(--os-surface);
+}
+.hist-confirm button.danger,
+.hist-foot .hist-clear {
+  color: var(--os-bad-ink);
+}
+.hist-confirm button.danger:hover,
+.hist-foot .hist-clear:hover:not(:disabled) {
+  background: var(--os-bad-soft);
+}
+.hist-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 6px 2px 2px 8px;
+  border-top: 1px solid var(--os-line);
+  font-size: var(--os-fs-12);
+  line-height: var(--os-lh-12);
+  color: var(--os-muted);
+}
+.hist-foot .hist-note {
+  flex: 1 1 auto;
+}
+.hist-foot .hist-clear {
+  border-color: transparent;
+  background: transparent;
+}
+.hist-busy,
+.hist-empty,
+.hist-off p {
+  margin: 0;
+  padding: 8px;
+  font-size: var(--os-fs-12);
+  line-height: var(--os-lh-12);
+  color: var(--os-muted);
+}
+.hist-off {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding-bottom: 4px;
+}
+.hist-off button {
+  margin: 0 8px;
+}
+.hist-status {
+  margin: 0;
+  padding: 4px 8px 2px;
+  font-size: var(--os-fs-12);
+  line-height: var(--os-lh-12);
+  color: var(--os-muted);
+}
+.hist-status:empty {
+  display: none;
+}
+
 /* Transcript ----------------------------------------------------------- */
 
 .messages-wrap {

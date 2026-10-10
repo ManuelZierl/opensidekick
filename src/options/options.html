@@ -48,6 +48,8 @@
         <p class="eyebrow">Agent</p>
         <a href="#sec-behavior">Behavior</a>
         <a href="#sec-sites">Site permissions</a>
+        <p class="eyebrow">Data</p>
+        <a href="#sec-history">Chat history</a>
         <p class="eyebrow">Extras</p>
         <a href="#sec-prompts">Saved prompts</a>
         <a href="#sec-sched">Scheduled tasks</a>
@@ -211,6 +213,24 @@
           </details>
           <div id="perm-list" class="perm-list"></div>
           <p id="no-perms" class="empty-note">No site rules yet.</p>
+        </section>
+
+        <section class="card" id="sec-history">
+          <p class="eyebrow">Data</p>
+          <h2>Chat history</h2>
+          <div class="field">
+            <label class="radio"><input type="checkbox" id="keep-history" /> Keep chat history on this device <span class="chip">on by default</span></label>
+            <p class="hint">Keeps your 20 most recent chats in this browser so you can reopen them from the side panel. Never sent anywhere.</p>
+            <details class="more">
+              <summary>Learn more</summary>
+              <p class="hint">History keeps what you see in the chat: your messages and the assistant's replies. It doesn't keep screenshots, the page text the assistant read, or the steps it took. A chat that reads or opens a banking, payment or crypto site is never saved. Your prompt history (↑ in the chat box) follows this switch too. Turning it off deletes both; the chat that's open stays until Chrome closes. When you continue a saved chat, its earlier messages are sent to the model you're using now.</p>
+            </details>
+          </div>
+          <div class="field history-row">
+            <span id="history-count" class="hint"></span>
+            <button id="clear-history" class="btn btn-danger small">Clear history</button>
+          </div>
+          <p id="clear-history-status" class="hint" role="status"></p>
         </section>
 
         <!-- Extras stay folded until they hold something: a fresh install

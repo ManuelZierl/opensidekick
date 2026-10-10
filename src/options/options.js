@@ -1,8 +1,17 @@
 // Options page: manage providers, model selection, behavior, and site rules.
 
-import { PROVIDER_PRESETS, DEFAULT_CONFIG, DEFAULT_SETTINGS, MSG, STORAGE_KEY, MODELS_PAGE_URL } from "../common/constants.js";
+import {
+  PROVIDER_PRESETS,
+  DEFAULT_CONFIG,
+  DEFAULT_SETTINGS,
+  MSG,
+  STORAGE_KEY,
+  MODELS_PAGE_URL,
+  SESSIONS_INDEX_KEY,
+  PROMPT_HISTORY_KEY,
+} from "../common/constants.js";
 import { presetFor } from "../common/presets.js";
-import { loadConfig, saveConfig } from "../background/storage.js";
+import { loadConfig, saveConfig, loadSessionIndex } from "../background/storage.js";
 import { listModels, testModel } from "../background/providers.js";
 import { connectServer, listTools } from "../background/mcp.js";
 import {
@@ -68,6 +77,7 @@ async function init() {
   // with our stale snapshot (a saved workflow used to vanish this way). So on
   // any external write, re-read and re-render.
   chrome.storage.onChanged.addListener(async (changes, area) => {
+    if (area === "local" && (changes[SESSIONS_INDEX_KEY] || changes[PROMPT_HISTORY_KEY])) renderHistoryCard();
     if (area !== "local" || !changes[STORAGE_KEY]) return;
     if (selfWrites > 0) {
       selfWrites--; // our own persist() — in-memory config is already current
@@ -605,6 +615,8 @@ function wireSettings() {
     config.settings.enableCdp = e.target.checked;
     persist();
   });
+  $("#keep-history").addEventListener("change", onKeepHistory);
+  $("#clear-history").addEventListener("click", clearHistory);
 }
 
 function renderSettings() {
@@ -620,6 +632,82 @@ function renderSettings() {
   $("#enable-vision").checked = !!s.enableVision;
   $("#enable-js").checked = !!s.enableJsTool;
   $("#enable-cdp").checked = !!s.enableCdp;
+  $("#keep-history").checked = s.keepHistory !== false;
+  renderHistoryCard();
+}
+
+// -------------------------------------------------------------------------
+// Chat history. The worker owns every write: turning the switch off is just a
+// config write (the worker deletes the data when it sees the flip), and Clear
+// history is a message. This page only reads the counts.
+// -------------------------------------------------------------------------
+let historyRender = 0; // bumped per render so a slow read can't show stale counts
+
+async function historyCounts() {
+  let chats = 0;
+  let prompts = 0;
+  try {
+    chats = (await loadSessionIndex()).items.length;
+    const raw = await chrome.storage.local.get(PROMPT_HISTORY_KEY);
+    if (Array.isArray(raw[PROMPT_HISTORY_KEY])) prompts = raw[PROMPT_HISTORY_KEY].length;
+  } catch {
+    /* storage unavailable — show nothing saved */
+  }
+  return { chats, prompts };
+}
+
+async function renderHistoryCard() {
+  const run = ++historyRender;
+  const { chats, prompts } = await historyCounts();
+  if (run !== historyRender) return;
+  const count = $("#history-count");
+  const btn = $("#clear-history");
+  if (config.settings.keepHistory === false) {
+    count.textContent = "History is off. Nothing is saved.";
+    btn.disabled = true;
+  } else if (chats > 0) {
+    count.textContent = `${chats} saved chat${chats === 1 ? "" : "s"} on this device.`;
+    btn.disabled = false;
+  } else {
+    count.textContent = "No saved chats yet.";
+    btn.disabled = !prompts;
+  }
+}
+
+const plural = (n) => (n === 1 ? "" : "s");
+const turnOffCopy = (n) =>
+  `Turn off chat history?\n\nThis deletes ${n ? `the ${n} chat${plural(n)} saved on this device and ` : ""}your prompt history. It can't be undone. The chat that's open now stays until Chrome closes.`;
+const clearCopy = (n) =>
+  `Delete all chat history?\n\nThis deletes ${n ? `the ${n} chat${plural(n)} saved on this device, ` : ""}your prompt history and the open chat. It can't be undone.`;
+
+async function onKeepHistory(e) {
+  if (e.target.checked) {
+    config.settings.keepHistory = true;
+    persist();
+    renderHistoryCard();
+    return;
+  }
+  const { chats, prompts } = await historyCounts();
+  if (chats + prompts > 0 && !confirm(turnOffCopy(chats))) {
+    e.target.checked = true;
+    return;
+  }
+  config.settings.keepHistory = false;
+  persist();
+  renderHistoryCard();
+}
+
+async function clearHistory() {
+  const status = $("#clear-history-status");
+  status.textContent = "";
+  const { chats } = await historyCounts();
+  if (!confirm(clearCopy(chats))) return;
+  const res = await chrome.runtime.sendMessage({ type: MSG.CLEAR_SESSIONS }).catch(() => null);
+  status.textContent = res && res.ok
+    ? "History cleared."
+    : res && res.error === "busy"
+      ? "A task is running. Try again when it finishes."
+      : "Couldn't clear history. Try again.";
 }
 
 // -------------------------------------------------------------------------

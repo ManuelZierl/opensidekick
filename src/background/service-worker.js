@@ -2,8 +2,40 @@
 // Owns conversation state, routes messages between the side panel and the agent
 // loop, and mediates permission prompts.
 
-import { MSG, STORAGE_KEY, SESSION_CONVO_KEY } from "../common/constants.js";
-import { loadConfig, getActiveProvider, setSitePermission, loadTaskRuns, recordTaskRun } from "./storage.js";
+import {
+  MSG,
+  STORAGE_KEY,
+  SESSION_CONVO_KEY,
+  SESSION_CONVO_META_KEY,
+  SESSION_BODY_PREFIX,
+  HISTORY_NOTICE_KEY,
+  SENSITIVE_NOTE,
+  HISTORY_NOTICE,
+} from "../common/constants.js";
+import {
+  loadConfig,
+  getActiveProvider,
+  setSitePermission,
+  loadTaskRuns,
+  recordTaskRun,
+  loadSessionIndex,
+  loadSessionBody,
+  writeSession,
+  writeSessionIndex,
+  removeSessionBodies,
+  listLocalKeys,
+  clearAllHistory,
+} from "./storage.js";
+import {
+  stripImages,
+  visibleTurns,
+  planSave,
+  removeSession,
+  reconcileIndex,
+  normalizeTitle,
+  touchesSensitiveSite,
+  emptyIndex,
+} from "./sessions.js";
 import { resolveSource, isNoteworthyChange, featureEnabled, thresholdFor } from "./decisions.js";
 import { runAgent } from "./agent.js";
 import { detachAll } from "./cdp.js";
@@ -14,8 +46,11 @@ import { applyMigrations } from "./migrations.js";
 // State
 // -------------------------------------------------------------------------
 let conversation = []; // normalized message history for the current chat
-let conversationLoaded = false; // restored from storage.session once per worker life
-let currentRun = null; // { controller: AbortController }
+let session = null; // { id, sensitive, trimmed? } for the live chat; null = nothing sent yet
+let liveLoad = null; // memoized restore of the live chat, once per worker life
+let currentRun = null; // { controller: AbortController, chat: boolean } (chat = started from the panel)
+let historyQueue = Promise.resolve(); // serializes every chat-history read-modify-write
+let storageFullWarned = false;
 const pendingPermissions = new Map(); // id -> resolve fn
 const pendingPlans = new Map(); // id -> resolve fn
 let permissionSeq = 0;
@@ -43,54 +78,192 @@ function stopKeepAlive() {
 }
 
 // -------------------------------------------------------------------------
-// Conversation persistence — MV3 kills the idle worker BETWEEN user prompts
-// (the keepalive only runs during a task), which used to wipe the in-memory
-// conversation: the next prompt started from scratch. Persist the chat to
-// chrome.storage.session (survives worker restarts, clears when Chrome closes)
-// and restore it lazily on the next worker.
+// Conversation persistence. MV3 kills the idle worker BETWEEN user prompts
+// (the keepalive only runs during a task), so the live chat is kept in two
+// places: a full-fidelity hot copy in chrome.storage.session (survives worker
+// restarts, clears when Chrome closes), and, while chat history is on, a
+// text-only saved copy in chrome.storage.local (see sessions.js) that also
+// survives a browser restart.
 // -------------------------------------------------------------------------
-async function ensureConversationLoaded() {
-  if (conversationLoaded) return;
-  conversationLoaded = true;
-  if (conversation.length) return; // this worker already has a live chat
-  try {
-    const raw = await chrome.storage.session.get(SESSION_CONVO_KEY);
-    const stored = raw[SESSION_CONVO_KEY];
-    if (Array.isArray(stored) && stored.length) conversation = stored;
-  } catch {
-    /* session storage unavailable — continue with an empty chat */
-  }
+const STORAGE_FULL_WARNING =
+  "Couldn't save this chat to History: OpenSidekick's browser storage is full. Delete some saved chats, or turn off chat history in Settings.";
+
+// One shared promise rather than a flag: a second handler must not run ahead
+// of the restore and then have the late restore overwrite what it set.
+function loadLive() {
+  liveLoad ||= (async () => {
+    try {
+      const raw = await chrome.storage.session.get([SESSION_CONVO_KEY, SESSION_CONVO_META_KEY]);
+      const messages = raw[SESSION_CONVO_KEY];
+      if (Array.isArray(messages) && messages.length) {
+        const meta = raw[SESSION_CONVO_META_KEY];
+        conversation = messages;
+        // A hot copy without meta (a reload mid-session) is adopted as a new chat.
+        session =
+          meta && typeof meta.id === "string" && meta.id
+            ? { id: meta.id, sensitive: !!meta.sensitive, ...(meta.trimmed ? { trimmed: true } : {}) }
+            : { id: crypto.randomUUID(), sensitive: false };
+        return;
+      }
+    } catch {
+      /* session storage unavailable — try the saved copy */
+    }
+    try {
+      const config = await loadConfig();
+      if (config.settings.keepHistory === false) return;
+      const index = await loadSessionIndex();
+      if (!index.currentId) return;
+      const body = await loadSessionBody(index.currentId);
+      if (body && body.messages.length) {
+        conversation = body.messages;
+        session = { id: body.id, sensitive: false, ...(body.trimmed ? { trimmed: true } : {}) };
+      }
+    } catch {
+      /* continue with an empty chat */
+    }
+  })();
+  return liveLoad;
 }
 
-async function persistConversation() {
-  // Screenshots are large and only matter within the turn they were taken in —
-  // strip them so the chat stays comfortably inside the session-storage quota.
-  const strip = (msgs) =>
-    msgs.map((m) =>
-      m.images && m.images.length
-        ? { ...m, images: undefined, content: m.content || "(a screenshot was attached here; it is not retained across sessions)" }
-        : m,
-    );
+async function writeHot() {
+  // Captured now: a New chat during the first set() must not get this chat's meta.
+  const convo = conversation;
+  const meta = { id: session.id, sensitive: session.sensitive, ...(session.trimmed ? { trimmed: true } : {}) };
   try {
-    await chrome.storage.session.set({ [SESSION_CONVO_KEY]: strip(conversation) });
+    await chrome.storage.session.set({ [SESSION_CONVO_KEY]: stripImages(convo), [SESSION_CONVO_META_KEY]: meta });
   } catch {
-    // Likely over quota (very long chat) — keep only the recent tail.
+    if (session?.id !== meta.id) return;
+    // Likely over quota (very long chat). Keep whole visible turns: a raw tail
+    // could start with an orphaned tool result, which providers reject.
     try {
-      await chrome.storage.session.set({ [SESSION_CONVO_KEY]: strip(conversation.slice(-20)) });
+      await chrome.storage.session.set({ [SESSION_CONVO_KEY]: visibleTurns(convo), [SESSION_CONVO_META_KEY]: meta });
     } catch {
-      /* give up quietly; worst case the next worker starts fresh */
+      /* give up quietly; worst case the next worker starts from the saved copy */
     }
   }
 }
 
-async function clearConversation() {
+// Start a fresh chat. The previous one was saved at its last run end.
+async function resetLive() {
   conversation = [];
-  conversationLoaded = true;
+  session = null;
   try {
-    await chrome.storage.session.remove(SESSION_CONVO_KEY);
+    await chrome.storage.session.remove([SESSION_CONVO_KEY, SESSION_CONVO_META_KEY]);
   } catch {
     /* ignore */
   }
+  await withHistory(async () => {
+    const index = await loadSessionIndex();
+    if (index.currentId) await writeSessionIndex({ ...index, currentId: null });
+  }).catch(() => {});
+}
+
+// This worker is the only writer of chat-history keys; every write goes
+// through this one chain so a rename can't race the end-of-run save.
+function withHistory(fn) {
+  const run = historyQueue.then(fn);
+  historyQueue = run.catch(() => {});
+  return run;
+}
+
+// End of a chat run: `s` and `convo` are the chat the run started in, which may
+// no longer be the live one (New chat mid-run).
+async function saveRun(s, convo, meta) {
+  const newlySensitive = !s.sensitive && touchesSensitiveSite(convo);
+  if (newlySensitive) s.sensitive = true;
+  if (s === session) await writeHot();
+  let saved = { enabled: false, wrote: false };
+  try {
+    saved = await withHistory(() => saveCold(s, convo, meta));
+  } catch {
+    /* the hot copy still holds the chat */
+  }
+  if (newlySensitive && saved.enabled) emit({ kind: "note", icon: "shield", text: SENSITIVE_NOTE });
+  if (saved.wrote && s === session) await showHistoryNoticeOnce();
+}
+
+async function saveCold(s, convo, meta) {
+  const config = await loadConfig();
+  if (config.settings.keepHistory === false) return { enabled: false, wrote: false };
+  const plan = planSave({
+    index: await loadSessionIndex(),
+    sessionId: s.id,
+    sensitive: s.sensitive,
+    conversation: convo,
+    isCurrent: s === session,
+    keepHistory: true,
+    now: Date.now(),
+    model: meta.model,
+    provider: meta.provider,
+    trimmed: !!s.trimmed,
+  });
+  if (!plan.index) return { enabled: true, wrote: false };
+  if (plan.body) {
+    if (!(await writeWithRoom(plan.index, plan.body))) return { enabled: true, wrote: false };
+  } else {
+    await writeSessionIndex(plan.index);
+  }
+  await removeSessionBodies(plan.removeIds).catch(() => {}); // orphans are swept at browser start
+  return { enabled: true, wrote: !!plan.body };
+}
+
+// On a quota error, make room by dropping the 5 oldest other chats and retry
+// once; after that, say so once per worker life rather than on every turn.
+async function writeWithRoom(index, body) {
+  try {
+    await writeSession(index, body);
+    return true;
+  } catch (e) {
+    // Only a full store is worth deleting other chats over (Chrome: "Resource::kQuotaBytes quota exceeded").
+    if (!/quota/i.test(String((e && e.message) || e))) return false;
+  }
+  const victims = index.items.filter((i) => i.id !== body.id).slice(-5).map((i) => i.id);
+  let smaller = index;
+  for (const id of victims) smaller = removeSession(smaller, id);
+  try {
+    // Unlist the victims before deleting their bodies, so a failed retry can't
+    // leave the stored index pointing at chats that are gone.
+    let stored = await loadSessionIndex();
+    for (const id of victims) stored = removeSession(stored, id);
+    await writeSessionIndex(stored);
+    await removeSessionBodies(victims);
+    await writeSession(smaller, body);
+    return true;
+  } catch {
+    if (!storageFullWarned) {
+      storageFullWarned = true;
+      emit({ kind: "warning", text: STORAGE_FULL_WARNING });
+    }
+    return false;
+  }
+}
+
+// History is on by default, upgrades included, so say so once per install,
+// right after the first chat saved while the panel is open.
+async function showHistoryNoticeOnce() {
+  try {
+    const raw = await chrome.storage.local.get(HISTORY_NOTICE_KEY);
+    if (raw[HISTORY_NOTICE_KEY]) return;
+    // Only the side panel listens, so this rejects while it is closed, and the
+    // note waits for a saved chat the user can see it in.
+    await chrome.runtime.sendMessage({ type: MSG.AGENT_EVENT, kind: "note", icon: "dot", text: HISTORY_NOTICE });
+    await chrome.storage.local.set({ [HISTORY_NOTICE_KEY]: true });
+  } catch {
+    /* not worth failing a run over */
+  }
+}
+
+// At browser start: drop index items whose body is missing and bodies no item
+// points at (a worker killed mid-save), or everything if history is off.
+async function reconcileHistory() {
+  const config = await loadConfig();
+  if (config.settings.keepHistory === false) return clearAllHistory();
+  const bodyIds = (await listLocalKeys())
+    .filter((k) => k.startsWith(SESSION_BODY_PREFIX))
+    .map((k) => k.slice(SESSION_BODY_PREFIX.length));
+  const { index, orphans, changed } = reconcileIndex(await loadSessionIndex(), bodyIds);
+  if (changed) await writeSessionIndex(index);
+  await removeSessionBodies(orphans);
 }
 
 // -------------------------------------------------------------------------
@@ -110,11 +283,13 @@ chrome.runtime.onInstalled.addListener(() => {
   });
   runMigrations();
   reconcileAlarms();
+  withHistory(reconcileHistory).catch(() => {});
 });
 
 chrome.runtime.onStartup.addListener(() => {
   runMigrations();
   reconcileAlarms();
+  withHistory(reconcileHistory).catch(() => {});
 });
 
 // Apply one-time config migrations to an existing stored config. Does nothing on
@@ -130,7 +305,14 @@ async function runMigrations() {
 // Re-register scheduled-task alarms whenever the config changes.
 const SCHED_PREFIX = "osk:sched:";
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === "local" && changes[STORAGE_KEY]) reconcileAlarms();
+  if (area !== "local" || !changes[STORAGE_KEY]) return;
+  reconcileAlarms();
+  // Turning chat history off deletes it, whichever page wrote the setting. The
+  // live chat carries on in the hot copy only, as before chat history existed.
+  const { oldValue, newValue } = changes[STORAGE_KEY];
+  if (oldValue?.settings?.keepHistory !== false && newValue?.settings?.keepHistory === false) {
+    withHistory(clearAllHistory).catch(() => {});
+  }
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
@@ -195,7 +377,29 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       return true;
     }
     case MSG.NEW_CHAT: {
-      clearConversation().then(() => sendResponse({ ok: true }));
+      loadLive()
+        .then(resetLive)
+        .then(() => sendResponse({ ok: true }));
+      return true;
+    }
+    case MSG.LIST_SESSIONS: {
+      listSessions().catch(failed).then(sendResponse);
+      return true;
+    }
+    case MSG.OPEN_SESSION: {
+      openSession(msg.id).catch(failed).then(sendResponse);
+      return true;
+    }
+    case MSG.RENAME_SESSION: {
+      renameSession(msg.id, msg.title).catch(failed).then(sendResponse);
+      return true;
+    }
+    case MSG.DELETE_SESSION: {
+      deleteSession(msg.id).catch(failed).then(sendResponse);
+      return true;
+    }
+    case MSG.CLEAR_SESSIONS: {
+      clearSessions().catch(failed).then(sendResponse);
       return true;
     }
     case MSG.STOP_TASK: {
@@ -260,7 +464,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
 async function handleGetState() {
   const { config, provider } = await getActiveProvider();
-  await ensureConversationLoaded();
+  await loadLive();
   const seed = pendingSeed;
   pendingSeed = null;
   return {
@@ -274,26 +478,101 @@ async function handleGetState() {
     recordingSteps: recording ? recording.steps.length : 0,
     seed,
     history: conversationHistory(),
+    // The sensitive-site note only makes sense while there is a History to keep out of.
+    sensitive: !!(session && session.sensitive) && config.settings.keepHistory !== false,
+    trimmed: !!(session && session.trimmed),
   };
 }
 
 // A compact, renderable projection of the conversation for the side panel —
-// user prompts and visible assistant text (incl. a finish tool's summary).
+// exactly what a saved chat keeps, so History keeps what you see.
 function conversationHistory() {
-  const out = [];
-  for (const m of conversation) {
-    if (m.role === "user" && typeof m.content === "string" && m.content && !m.images && !m.internal) {
-      out.push({ role: "user", text: m.content });
-    } else if (m.role === "assistant") {
-      let text = (m.content || "").trim();
-      if (!text && m.toolCalls) {
-        const fin = m.toolCalls.find((t) => t.name === "finish" && t.args && t.args.summary);
-        if (fin) text = String(fin.args.summary);
-      }
-      if (text) out.push({ role: "assistant", text });
-    }
+  return visibleTurns(conversation).map((m) => ({ role: m.role, text: m.content }));
+}
+
+// -------------------------------------------------------------------------
+// Chat history messages (side panel History menu, Settings → Chat history)
+// -------------------------------------------------------------------------
+const failed = () => ({ ok: false, error: "failed" });
+const chatRunning = () => !!(currentRun && currentRun.chat);
+
+async function listSessions() {
+  await loadLive();
+  const config = await loadConfig();
+  const enabled = config.settings.keepHistory !== false;
+  const index = enabled ? await withHistory(loadSessionIndex) : emptyIndex();
+  return { ok: true, enabled, currentId: session ? session.id : null, running: chatRunning(), items: index.items };
+}
+
+async function openSession(id) {
+  await loadLive();
+  // Switching mid-run would either kill the task or leave it writing into a
+  // chat that is no longer on screen.
+  if (chatRunning()) return { ok: false, error: "busy" };
+  if (session && session.id === id) {
+    return { ok: true, id, history: conversationHistory(), trimmed: !!session.trimmed };
   }
-  return out;
+  const config = await loadConfig();
+  if (config.settings.keepHistory === false) return { ok: false, error: "disabled" };
+  const body = typeof id === "string" && id ? await loadSessionBody(id) : null;
+  if (!body || !body.messages.length) {
+    await withHistory(async () => {
+      const index = await loadSessionIndex();
+      if (index.items.some((i) => i.id === id)) await writeSessionIndex(removeSession(index, id));
+      if (body) await removeSessionBodies([id]); // a body with no messages
+    }).catch(() => {});
+    return { ok: false, error: "not-found" };
+  }
+  if (chatRunning()) return { ok: false, error: "busy" }; // a run may have started while we read
+  conversation = body.messages;
+  session = { id, sensitive: false, ...(body.trimmed ? { trimmed: true } : {}) };
+  await writeHot();
+  // Opening doesn't touch updatedAt, so a glance at an old chat doesn't reorder the list.
+  await withHistory(async () => {
+    const index = await loadSessionIndex();
+    if (index.currentId !== id && index.items.some((i) => i.id === id)) {
+      await writeSessionIndex({ ...index, currentId: id });
+    }
+  }).catch(() => {});
+  return { ok: true, id, history: conversationHistory(), trimmed: !!body.trimmed };
+}
+
+async function renameSession(id, title) {
+  const name = normalizeTitle(title);
+  if (!name) return { ok: false, error: "invalid" };
+  return withHistory(async () => {
+    const index = await loadSessionIndex();
+    if (!index.items.some((i) => i.id === id)) return { ok: false, error: "not-found" };
+    await writeSessionIndex({ ...index, items: index.items.map((i) => (i.id === id ? { ...i, title: name } : i)) });
+    return { ok: true, title: name };
+  });
+}
+
+async function deleteSession(id) {
+  if (typeof id !== "string" || !id) return { ok: true, wasCurrent: false };
+  await loadLive();
+  const wasCurrent = !!session && session.id === id;
+  if (wasCurrent) {
+    if (chatRunning()) return { ok: false, error: "busy" };
+    // Reset before deleting, so the chat's next turn can't quietly re-create it.
+    await resetLive();
+  }
+  await withHistory(async () => {
+    const index = await loadSessionIndex();
+    if (index.items.some((i) => i.id === id)) await writeSessionIndex(removeSession(index, id));
+    await removeSessionBodies([id]);
+  });
+  if (wasCurrent) emit({ kind: "chat_reset" });
+  return { ok: true, wasCurrent };
+}
+
+async function clearSessions() {
+  await loadLive();
+  if (chatRunning()) return { ok: false, error: "busy" };
+  await resetLive();
+  await withHistory(clearAllHistory);
+  emit({ kind: "chat_reset" });
+  return { ok: true };
 }
 
 async function handleRunTask(msg) {
@@ -311,13 +590,18 @@ async function handleRunTask(msg) {
     return { ok: false, error: "no-model" };
   }
 
-  if (msg.newChat) await clearConversation();
-  else await ensureConversationLoaded();
+  await loadLive();
+  if (msg.newChat) await resetLive();
+  if (!session) session = { id: crypto.randomUUID(), sensitive: false };
   conversation.push({ role: "user", content: msg.task });
   emit({ kind: "user_echo", text: msg.task });
+  // Captured now: New chat mid-run must not redirect this run's save.
+  const runSession = session;
+  const runConversation = conversation;
+  const saveMeta = { model: config.activeModel, provider: provider.name };
 
   const controller = new AbortController();
-  currentRun = { controller };
+  currentRun = { controller, chat: true };
 
   const initialTabId = await getActiveContentTabId();
   if (initialTabId == null) {
@@ -346,7 +630,8 @@ async function handleRunTask(msg) {
     .finally(async () => {
       // Detach the debugger (removes the "debugging this browser" banner).
       await detachAll().catch(() => {});
-      await persistConversation(); // so the chat survives worker termination
+      // Before idle, so whoever waits for idle sees the saved chat.
+      await saveRun(runSession, runConversation, saveMeta).catch(() => {});
       currentRun = null;
       if (!recording) stopKeepAlive(); // an active recording still needs it
       emit({ kind: "idle" });
@@ -465,7 +750,7 @@ async function runScheduledTask(task) {
   }
 
   const controller = new AbortController();
-  currentRun = { controller };
+  currentRun = { controller, chat: false }; // never recorded in chat history
   startKeepAlive();
   const conversation = [{ role: "user", content: task.prompt }];
   let summary = "";

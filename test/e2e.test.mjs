@@ -15,7 +15,19 @@ import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
-import { STORAGE_KEY, MSG, SESSION_PENDING_WF_KEY, MODELS_PAGE_URL } from "../src/common/constants.js";
+import {
+  STORAGE_KEY,
+  MSG,
+  SESSION_PENDING_WF_KEY,
+  MODELS_PAGE_URL,
+  SESSIONS_INDEX_KEY,
+  SESSION_BODY_PREFIX,
+  SESSIONS_MAX,
+  PROMPT_HISTORY_KEY,
+  TASK_RUNS_KEY,
+  HISTORY_NOTICE,
+  TRIMMED_NOTE,
+} from "../src/common/constants.js";
 
 const EXT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const IMG_PNG = fs.readFileSync(path.join(EXT_DIR, "icons/icon16.png")); // a real, tiny PNG
@@ -912,6 +924,14 @@ async function main() {
         }
       });
     }, [MSG.AGENT_EVENT, MSG.PERMISSION_REQUEST, MSG.PERMISSION_RESPONSE]);
+    // Every transcript note's text since the first run (the one-time chat
+    // history notice is counted across the whole suite).
+    await optPage.evaluate((agentEventType) => {
+      window.__notes = [];
+      chrome.runtime.onMessage.addListener((m) => {
+        if (m && m.type === agentEventType && m.kind === "note") window.__notes.push(m.text);
+      });
+    }, MSG.AGENT_EVENT);
 
     // Make the test page the active tab, then kick off the task.
     await testPage.bringToFront();
@@ -1105,6 +1125,9 @@ async function main() {
     await panel.close();
 
     // --- Scheduled task: "Run now" opens the URL and runs the task headlessly ---
+    const listSessions = () => optPage.evaluate((t) => chrome.runtime.sendMessage({ type: t }), MSG.LIST_SESSIONS);
+    const sessionIdsBefore = ((await listSessions())?.items || []).map((i) => i.id);
+    const schedStartedAt = Date.now();
     await optPage.evaluate(([key, cfg]) => chrome.storage.local.set({ [key]: cfg }), [
       STORAGE_KEY,
       { ...config, scheduledTasks: [{ id: "sch1", name: "Cat search", prompt: "Search for cats on this page.", url: `${base}/page`, intervalMinutes: 100000, enabled: false }] },
@@ -1120,6 +1143,19 @@ async function main() {
       await new Promise((r) => setTimeout(r, 250));
     }
     check(schedOut === "Results for: cats", `scheduled: run-now opened the URL and completed the task (got "${schedOut}")`);
+    // The run's last step is recording its result; wait for that, then compare.
+    await optPage
+      .waitForFunction(
+        ([key, since]) => chrome.storage.local.get(key).then((r) => (r[key]?.sch1?.lastRunAt || 0) >= since),
+        [TASK_RUNS_KEY, schedStartedAt],
+        { timeout: 10000 },
+      )
+      .catch(() => {});
+    const sessionIdsAfter = ((await listSessions())?.items || []).map((i) => i.id);
+    check(
+      JSON.stringify(sessionIdsAfter) === JSON.stringify(sessionIdsBefore),
+      `sessions: a scheduled run is not added to History (${sessionIdsBefore.length} -> ${sessionIdsAfter.length} chats)`,
+    );
     await schedPage.close();
 
     // --- Workflow recording & replay ---
@@ -1393,6 +1429,419 @@ async function main() {
     const lastAnswer = await panel2.$$eval(".msg.assistant", (els) => els[els.length - 1].textContent).catch(() => "");
     check(/remembered: plum/.test(lastAnswer), `panel-context: composer follow-up after reopen keeps the context (got "${lastAnswer.slice(0, 40)}")`);
     await panel2.close();
+
+    // --- Chat history (sessions) ---
+    // The live chat is saved to chrome.storage.local at each run end, listed in
+    // the panel's History menu, and governed by Settings → Chat history. Every
+    // write is polled for, never slept on.
+    const readHistory = () =>
+      optPage.evaluate(
+        async ([idxKey, prefix, promptKey]) => {
+          const all = await chrome.storage.local.get(null);
+          const bodies = {};
+          for (const [k, v] of Object.entries(all)) if (k.startsWith(prefix)) bodies[k.slice(prefix.length)] = v;
+          return { index: all[idxKey] ?? null, bodies, prompts: all[promptKey] ?? null };
+        },
+        [SESSIONS_INDEX_KEY, SESSION_BODY_PREFIX, PROMPT_HISTORY_KEY],
+      );
+    const waitHistory = async (pred, timeoutMs = 5000) => {
+      let h = await readHistory();
+      for (let t = 0; t < timeoutMs && !pred(h); t += 100) {
+        await new Promise((r) => setTimeout(r, 100));
+        h = await readHistory();
+      }
+      return h;
+    };
+    // A copy of the context block's CDP sequence (closing the worker's target),
+    // marking the old worker so a caller can prove the next one is fresh.
+    const stopWorker = async () => {
+      try {
+        const oldSw = context.serviceWorkers().find((w) => w.url().includes(extId));
+        if (oldSw) await oldSw.evaluate(() => (globalThis.__testGen = "old"));
+        const cdp = await context.browser().newBrowserCDPSession();
+        const { targetInfos } = await cdp.send("Target.getTargets");
+        const swTarget = targetInfos.find((t) => t.type === "service_worker" && t.url.includes(extId));
+        if (!swTarget) return false;
+        await cdp.send("Target.closeTarget", { targetId: swTarget.targetId });
+        await new Promise((r) => setTimeout(r, 700));
+        return true;
+      } catch (e) {
+        console.log("note: could not stop service worker via CDP:", e.message);
+        return false;
+      }
+    };
+    const openHistory = async (pg) => {
+      await pg.click("#history-btn");
+      await pg.waitForSelector("#hist-menu:not([hidden]) .hist-body > *", { timeout: 5000 });
+    };
+    const histRow = (id) => `#hist-menu li.hist-item[data-id="${id}"]`;
+    const openPanel = async () => {
+      const pg = await context.newPage();
+      await pg.goto(`chrome-extension://${extId}/src/sidepanel/sidepanel.html`, { waitUntil: "load" });
+      await pg.waitForTimeout(500); // GET_STATE and the config read
+      return pg;
+    };
+    const lastAssistant = (pg) => pg.$$eval(".msg.assistant", (els) => (els.length ? els[els.length - 1].textContent : "")).catch(() => "");
+    const assistantCount = (pg) => pg.$$eval(".msg.assistant", (n) => n.length).catch(() => 0);
+
+    const sPages = [];
+    try {
+      // The one-time "chats are now saved" note (counted since the first run).
+      const savedNotes = await optPage.evaluate((t) => (window.__notes || []).filter((x) => x === t).length, HISTORY_NOTICE);
+      check(savedNotes === 1, `sessions: the chats-are-saved note shows once, after the first saved chat (got ${savedNotes})`);
+
+      // H1
+      await drive("Search for cats on this page.");
+      let h = await readHistory();
+      const liveBody = h.index && h.bodies[h.index.currentId];
+      const liveMsgs = (liveBody && liveBody.messages) || [];
+      const liveJson = JSON.stringify(liveBody || null);
+      check(
+        liveMsgs.length > 0 &&
+          liveMsgs.every((m) => m.role === "user" || m.role === "assistant") &&
+          liveMsgs[liveMsgs.length - 1].content === 'Typed "cats" and clicked Search.' &&
+          !liveJson.includes('"elements"') &&
+          !liveJson.includes('"role":"tool"'),
+        `sessions: a run's visible turns are saved, with no tool output (got ${liveJson.slice(0, 200)})`,
+      );
+
+      // H2
+      const p1 = await openPanel();
+      sPages.push(p1);
+      await p1.click("#new-chat");
+      await p1.waitForTimeout(300);
+      await panelSend(p1, "The magic word is plum. Acknowledge.", 0);
+      h = await readHistory();
+      const top = (h.index && h.index.items[0]) || {};
+      const plumId = top.id;
+      const plumBody = (h.bodies[plumId] && h.bodies[plumId].messages) || [];
+      check(
+        top.title === "The magic word is plum. Acknowledge." &&
+          top.model === "mock-model" &&
+          top.provider === "Mock" &&
+          !!plumId &&
+          plumId === h.index.currentId &&
+          plumBody.length === 2 &&
+          plumBody[0].role === "user" &&
+          plumBody[1].role === "assistant" &&
+          plumBody[1].content === "Noted.",
+        `sessions: a panel chat is saved with its title, model and provider (got ${JSON.stringify({ top, currentId: h.index && h.index.currentId, plumBody })})`,
+      );
+      await p1.close();
+
+      // H3: storage.session is gone after a browser restart, and so is the worker.
+      await optPage.evaluate(() => chrome.storage.session.clear());
+      const stopped = await stopWorker();
+      check(stopped, "sessions: the worker was stopped for the restart simulation");
+      const p2 = await openPanel();
+      sPages.push(p2);
+      await p2.waitForSelector(".msg.assistant", { timeout: 5000 }).catch(() => {});
+      const restored = await p2.evaluate(() => ({
+        users: [...document.querySelectorAll(".msg.user")].map((e) => e.textContent),
+        assistants: [...document.querySelectorAll(".msg.assistant")].map((e) => e.textContent),
+      }));
+      check(
+        restored.users.some((t) => t.includes("magic word is plum")) && restored.assistants.some((t) => t.includes("Noted.")),
+        `sessions: after a simulated browser restart the panel restores the last chat (got ${JSON.stringify(restored)})`,
+      );
+      // The chat came from chrome.storage.local, not a worker that kept it in memory.
+      const restoreSw = context.serviceWorkers().find((w) => w.url().includes(extId));
+      const restoreGen = restoreSw ? await restoreSw.evaluate(() => globalThis.__testGen || "fresh").catch(() => "fresh") : "fresh";
+      check(restoreGen === "fresh", `sessions: the restoring worker was a restarted one (marker: ${restoreGen})`);
+
+      // H4
+      await panelSend(p2, "What is the magic word?", await assistantCount(p2));
+      const h4 = await lastAssistant(p2);
+      check(/remembered: plum/.test(h4), `sessions: the restored chat keeps its context (got "${h4.slice(0, 40)}")`);
+
+      // H5
+      await p2.click("#new-chat");
+      await p2.waitForTimeout(300);
+      await panelSend(p2, "What model are you?", 0);
+      const modelId = (await readHistory()).index?.currentId;
+      await openHistory(p2);
+      const rows = await p2.$$eval("#hist-menu li.hist-item", (lis) =>
+        lis.map((li) => ({
+          id: li.dataset.id,
+          title: li.querySelector(".hist-title")?.textContent || "",
+          current: li.querySelector(".hist-open")?.getAttribute("aria-current") === "true",
+          meta: li.querySelector(".hist-meta")?.textContent || "",
+        })),
+      );
+      const newRow = rows.find((r) => r.id === modelId) || {};
+      check(
+        rows.length >= 2 &&
+          rows.some((r) => r.id === plumId && r.title === "The magic word is plum. Acknowledge.") &&
+          newRow.title === "What model are you?" &&
+          newRow.current &&
+          newRow.meta.includes("just now") &&
+          newRow.meta.includes("mock-model"),
+        `sessions: New chat keeps the previous chat in History (got ${rows.length} rows, new row ${JSON.stringify(newRow)})`,
+      );
+
+      // H6
+      await p2.click(`${histRow(plumId)} .hist-open`);
+      await p2.waitForSelector("#hist-menu", { state: "hidden", timeout: 5000 }).catch(() => {});
+      const h6 = await p2.evaluate(() => ({
+        hidden: document.getElementById("hist-menu").hidden,
+        users: [...document.querySelectorAll(".msg.user")].map((e) => e.textContent),
+      }));
+      check(
+        h6.hidden && h6.users.some((t) => t.includes("What is the magic word?")) && !h6.users.some((t) => t.includes("What model are you?")),
+        `sessions: opening a chat re-renders its transcript (got ${JSON.stringify(h6)})`,
+      );
+
+      // H7
+      await p2.click("#new-chat");
+      await p2.waitForTimeout(300);
+      await openHistory(p2);
+      // Ids, not just a count: at the 20-chat cap a stray new chat evicts one.
+      const idsOf = (list) => JSON.stringify(list.items.map((i) => i.id).sort());
+      const idsBefore = idsOf(await listSessions());
+      await p2.click(`${histRow(plumId)} .hist-open`);
+      await p2.waitForSelector("#hist-menu", { state: "hidden", timeout: 5000 }).catch(() => {});
+      await panelSend(p2, "What is the magic word?", await assistantCount(p2));
+      const h7 = await lastAssistant(p2);
+      const list7 = await listSessions();
+      check(
+        /remembered: plum/.test(h7) && list7.currentId === plumId && idsOf(list7) === idsBefore,
+        `sessions: a chat opened after New chat keeps the next turn (got "${h7.slice(0, 40)}", current ${list7.currentId === plumId}, same chats ${idsOf(list7) === idsBefore})`,
+      );
+
+      // H8
+      await openHistory(p2);
+      await p2.click(`${histRow(plumId)} .hist-rename`);
+      await p2.fill(`${histRow(plumId)} .hist-rename-input`, "Plum chat");
+      await p2.press(`${histRow(plumId)} .hist-rename-input`, "Enter");
+      h = await waitHistory((x) => x.index?.items.some((i) => i.id === plumId && i.title === "Plum chat"));
+      await p2.waitForSelector(`${histRow(plumId)} .hist-title`, { timeout: 5000 }).catch(() => {});
+      const shown8 = await p2.$eval(`${histRow(plumId)} .hist-title`, (el) => el.textContent).catch(() => "");
+      check(
+        h.index?.items.find((i) => i.id === plumId)?.title === "Plum chat" && shown8 === "Plum chat",
+        `sessions: rename with Enter saves the new title (stored "${h.index?.items.find((i) => i.id === plumId)?.title}", shown "${shown8}")`,
+      );
+
+      // H9
+      await p2.click(`${histRow(plumId)} .hist-rename`);
+      await p2.fill(`${histRow(plumId)} .hist-rename-input`, "zzz");
+      await p2.press(`${histRow(plumId)} .hist-rename-input`, "Escape");
+      await p2.waitForTimeout(300);
+      h = await readHistory();
+      const h9 = await p2.evaluate(() => ({
+        open: !document.getElementById("hist-menu").hidden,
+        input: !!document.querySelector(".hist-rename-input"),
+      }));
+      check(
+        h.index?.items.find((i) => i.id === plumId)?.title === "Plum chat" && h9.open && !h9.input,
+        `sessions: Esc cancels a rename (title "${h.index?.items.find((i) => i.id === plumId)?.title}", ${JSON.stringify(h9)})`,
+      );
+
+      // A rename committed by clicking another row's Delete keeps the confirm
+      // that click opened (the rename's reply must not re-render the list).
+      await p2.click(`${histRow(plumId)} .hist-rename`);
+      await p2.fill(`${histRow(plumId)} .hist-rename-input`, "Plum chat, renamed");
+      await p2.click(`${histRow(modelId)} .hist-delete`);
+      h = await waitHistory((x) => x.index?.items.some((i) => i.id === plumId && i.title === "Plum chat, renamed"));
+      await p2.waitForTimeout(300);
+      const blurRename = await p2.evaluate(([plumSel, modelSel]) => ({
+        confirm: !!document.querySelector(`${modelSel} .hist-confirm`),
+        focusOnCancel: !!document.activeElement && document.activeElement.matches(`${modelSel} .hist-confirm-no`),
+        shown: document.querySelector(`${plumSel} .hist-title`)?.textContent || "",
+      }), [histRow(plumId), histRow(modelId)]);
+      check(
+        h.index?.items.find((i) => i.id === plumId)?.title === "Plum chat, renamed" && blurRename.confirm && blurRename.focusOnCancel && blurRename.shown === "Plum chat, renamed",
+        `sessions: a rename saved by clicking away keeps the delete confirm that click opened (${JSON.stringify(blurRename)})`,
+      );
+      await p2.click(`${histRow(modelId)} .hist-confirm-no`);
+
+      // H10
+      await p2.click(`${histRow(modelId)} .hist-delete`);
+      const ask = await p2.$eval(`${histRow(modelId)} .hist-confirm span`, (el) => el.textContent).catch(() => "");
+      await p2.click(`${histRow(modelId)} .hist-confirm-no`);
+      const stillThere = await p2.$(`${histRow(modelId)} .hist-open`);
+      check(ask === "Delete this chat?" && !!stillThere, `sessions: delete asks first; Cancel keeps the chat (asked "${ask}", row kept ${!!stillThere})`);
+
+      // H11
+      await p2.click(`${histRow(modelId)} .hist-delete`);
+      await p2.click(`${histRow(modelId)} .hist-confirm-yes`);
+      h = await waitHistory((x) => !x.index?.items.some((i) => i.id === modelId) && !x.bodies[modelId]);
+      await p2.waitForSelector(histRow(modelId), { state: "detached", timeout: 5000 }).catch(() => {});
+      check(
+        !!modelId && !h.index?.items.some((i) => i.id === modelId) && !h.bodies[modelId] && !(await p2.$(histRow(modelId))),
+        "sessions: confirmed delete removes the chat and its stored messages",
+      );
+
+      // H12
+      await p2.keyboard.press("Escape");
+      await p2.waitForSelector("#hist-menu", { state: "hidden", timeout: 5000 }).catch(() => {});
+      await p2.focus("#history-btn");
+      await p2.keyboard.press("Enter");
+      await p2.waitForSelector("#hist-menu:not([hidden]) .hist-body > *", { timeout: 5000 }).catch(() => {});
+      await p2.waitForFunction(() => document.getElementById("hist-menu").contains(document.activeElement), null, { timeout: 5000 }).catch(() => {});
+      const focusedIn = await p2.evaluate(() => document.getElementById("hist-menu").contains(document.activeElement));
+      await p2.keyboard.press("Escape");
+      const h12 = await p2.evaluate(() => ({
+        hidden: document.getElementById("hist-menu").hidden,
+        active: document.activeElement && document.activeElement.id,
+        expanded: document.getElementById("history-btn").getAttribute("aria-expanded"),
+      }));
+      check(
+        focusedIn && h12.hidden && h12.active === "history-btn" && h12.expanded === "false",
+        `sessions: Esc closes the History menu and returns focus to the button (focus was inside ${focusedIn}, ${JSON.stringify(h12)})`,
+      );
+
+      // H13
+      const btnBox = await p2.$eval("#history-btn", (el) => el.getBoundingClientRect().height);
+      check(btnBox >= 32, `sessions: the History button is a 32px+ target (got ${btnBox})`);
+
+      // Trimmed marker: a chat whose saved copy dropped old exchanges says so,
+      // and stays marked after it is saved again.
+      h = await readHistory();
+      const trimItem = { id: "trimmed-chat", title: "An older long chat", createdAt: Date.now(), updatedAt: Date.now(), model: "mock-model", provider: "Mock" };
+      await optPage.evaluate(
+        ([idxKey, prefix, idx, item]) =>
+          chrome.storage.local.set({
+            [idxKey]: { ...idx, items: [item, ...idx.items] },
+            [prefix + item.id]: { id: item.id, messages: [{ role: "user", content: "The last kept prompt" }, { role: "assistant", content: "ok" }], trimmed: true },
+          }),
+        [SESSIONS_INDEX_KEY, SESSION_BODY_PREFIX, h.index, trimItem],
+      );
+      await openHistory(p2);
+      await p2.click(`${histRow("trimmed-chat")} .hist-open`);
+      await p2.waitForSelector("#hist-menu", { state: "hidden", timeout: 5000 }).catch(() => {});
+      const trimView = await p2.evaluate((note) => {
+        const first = document.querySelector("#messages .note, #messages .msg");
+        return { firstIsNote: !!first && first.classList.contains("note") && first.textContent.includes(note), users: document.querySelectorAll(".msg.user").length };
+      }, TRIMMED_NOTE);
+      check(trimView.firstIsNote && trimView.users === 1, `sessions: a chat saved trimmed says older messages weren't kept (got ${JSON.stringify(trimView)})`);
+      await panelSend(p2, "What model are you?", await assistantCount(p2));
+      h = await readHistory();
+      const trimBody = h.bodies["trimmed-chat"] || {};
+      check(
+        trimBody.trimmed === true && (trimBody.messages || []).length === 4,
+        `sessions: a trimmed chat stays marked after its next save (got trimmed ${trimBody.trimmed}, ${(trimBody.messages || []).length} messages)`,
+      );
+
+      // H14: 20 saved chats, then one more.
+      const seedItems = [];
+      const seedBodies = {};
+      for (let i = 0; i < 20; i++) {
+        const id = `seed-${String(i).padStart(2, "0")}`;
+        seedItems.unshift({ id, title: `seed ${i}`, createdAt: 1_000_000 + i, updatedAt: 1_000_000 + i, model: "mock-model", provider: "Mock" });
+        seedBodies[SESSION_BODY_PREFIX + id] = { id, messages: [{ role: "user", content: `seed ${i}` }, { role: "assistant", content: "ok" }] };
+      }
+      await optPage.evaluate(
+        async ([idxKey, prefix, items, bodies]) => {
+          const old = Object.keys(await chrome.storage.local.get(null)).filter((k) => k.startsWith(prefix));
+          await chrome.storage.local.remove(old);
+          await chrome.storage.local.set({ [idxKey]: { v: 1, currentId: null, items }, ...bodies });
+        },
+        [SESSIONS_INDEX_KEY, SESSION_BODY_PREFIX, seedItems, seedBodies],
+      );
+      await drive("What model are you?");
+      h = await readHistory();
+      check(
+        h.index?.items.length === SESSIONS_MAX && h.index.items[0].title === "What model are you?",
+        `sessions: the list is capped at 20 (got ${h.index?.items.length}, top "${h.index?.items[0]?.title}")`,
+      );
+
+      // H15
+      check(
+        !h.index?.items.some((i) => i.id === "seed-00") && !h.bodies["seed-00"] && h.index?.items.some((i) => i.id === "seed-19") && !!h.bodies["seed-19"],
+        "sessions: the oldest chat is evicted with its stored messages",
+      );
+
+      // H16: Settings → Chat history.
+      const sOpt = await context.newPage();
+      sPages.push(sOpt);
+      await sOpt.goto(`chrome-extension://${extId}/src/options/options.html`, { waitUntil: "load" });
+      await sOpt.waitForFunction(() => document.getElementById("keep-history").checked, null, { timeout: 5000 }).catch(() => {});
+      const indexBefore = JSON.stringify((await readHistory()).index);
+      const dismissed = new Promise((r) => sOpt.once("dialog", async (d) => { const m = d.message(); await d.dismiss(); r(m); }));
+      await sOpt.click("#keep-history");
+      const offAsk = await dismissed;
+      await sOpt.waitForFunction(() => document.getElementById("keep-history").checked, null, { timeout: 5000 }).catch(() => {});
+      await sOpt.waitForTimeout(300);
+      const h16 = await readHistory();
+      check(
+        /^Turn off chat history\?/.test(offAsk) && (await sOpt.$eval("#keep-history", (el) => el.checked)) && JSON.stringify(h16.index) === indexBefore,
+        `sessions: Cancel on the turn-off confirm keeps history (asked "${offAsk.split("\n")[0]}", index kept ${JSON.stringify(h16.index) === indexBefore})`,
+      );
+
+      // H17
+      sOpt.once("dialog", (d) => d.accept());
+      await sOpt.click("#keep-history");
+      h = await waitHistory((x) => x.index === null && !Object.keys(x.bodies).length && x.prompts === null);
+      check(
+        h.index === null && Object.keys(h.bodies).length === 0 && h.prompts === null,
+        `sessions: turning history off deletes saved chats and prompt history (index ${!!h.index}, ${Object.keys(h.bodies).length} bodies, prompts ${JSON.stringify(h.prompts)})`,
+      );
+
+      // H18
+      await drive("What model are you?");
+      const p3 = await openPanel();
+      sPages.push(p3);
+      await panelSend(p3, "What model are you?", await assistantCount(p3));
+      h = await readHistory();
+      check(
+        h.index === null && Object.keys(h.bodies).length === 0 && h.prompts === null,
+        `sessions: with history off a chat writes nothing to chrome.storage.local (index ${!!h.index}, ${Object.keys(h.bodies).length} bodies, prompts ${JSON.stringify(h.prompts)})`,
+      );
+
+      // H19
+      await openHistory(p3);
+      const offText = await p3.$eval("#hist-menu .hist-body", (el) => el.textContent).catch(() => "");
+      check(/Chat history is off/.test(offText), `sessions: the History menu says history is off (got "${offText.slice(0, 60)}")`);
+      await p3.keyboard.press("Escape");
+
+      // H20
+      await sOpt.click("#keep-history");
+      await optPage.waitForFunction((key) => chrome.storage.local.get(key).then((r) => r[key]?.settings?.keepHistory === true), STORAGE_KEY, { timeout: 5000 }).catch(() => {});
+      await drive("What model are you?");
+      h = await readHistory();
+      check(h.index?.items.length === 1, `sessions: turning history back on resumes saving (got ${h.index?.items.length} items)`);
+
+      // p3 sent "What model are you?" while history was off; its next prompt,
+      // now that history is on, must not write that one to disk with it.
+      await p3.click("#new-chat");
+      await p3.waitForTimeout(300);
+      await panelSend(p3, "The magic word is plum. Acknowledge.", 0);
+      h = await waitHistory((x) => Array.isArray(x.prompts) && x.prompts.length > 0);
+      check(
+        JSON.stringify(h.prompts) === JSON.stringify(["The magic word is plum. Acknowledge."]),
+        `sessions: a prompt typed while history was off isn't saved once it is back on (prompts ${JSON.stringify(h.prompts)})`,
+      );
+      await p3.close();
+
+      // H21
+      const p4 = await openPanel();
+      sPages.push(p4);
+      await panelSend(p4, "The magic word is plum. Acknowledge.", await assistantCount(p4));
+      await waitHistory((x) => Array.isArray(x.prompts) && x.prompts.length > 0 && Object.keys(x.bodies).length > 0);
+      await openHistory(p4);
+      await p4.click("#hist-menu .hist-clear");
+      const clearAsk = await p4.$eval("#hist-menu .hist-foot .hist-confirm span", (el) => el.textContent).catch(() => "");
+      await p4.click("#hist-menu .hist-confirm-yes");
+      h = await waitHistory((x) => !Object.keys(x.bodies).length && (x.index === null || !x.index.items.length) && x.prompts === null);
+      check(
+        /^Delete all \d+ saved chats? and your prompt history\? The open chat is cleared too\.$/.test(clearAsk) &&
+          !Object.keys(h.bodies).length &&
+          (h.index === null || !h.index.items.length) &&
+          h.prompts === null,
+        `sessions: Clear all asks first, then deletes every chat and the prompt history (asked "${clearAsk}", ${Object.keys(h.bodies).length} bodies, prompts ${JSON.stringify(h.prompts)})`,
+      );
+
+      // H22
+      await p4.waitForFunction(() => !document.querySelector("#messages .msg"), null, { timeout: 5000 }).catch(() => {});
+      const h22 = await p4.evaluate(() => ({ msgs: document.querySelectorAll("#messages .msg").length, empty: !document.getElementById("empty-state").hidden }));
+      check(h22.msgs === 0 && h22.empty, `sessions: Clear all empties the open chat (got ${JSON.stringify(h22)})`);
+    } catch (e) {
+      check(false, `sessions: side-panel flow threw: ${e.message}`);
+    } finally {
+      for (const pg of sPages) await pg.close().catch(() => {});
+      // The standard config again: keepHistory unset, which means on.
+      await optPage.evaluate(([key, cfg]) => chrome.storage.local.set({ [key]: cfg }), [STORAGE_KEY, config]);
+    }
 
     // --- Model chip, switch notice, and model identity (side panel) ---
     // The provider gets a key here so the system-prompt check below can prove

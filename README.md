@@ -95,6 +95,11 @@ genuinely agentic, and usable with any LLM — including fully local models.**
 - **Saved prompts** — store reusable prompts and insert them by typing `/` in the
   chat (with an autocomplete menu). The composer also has shell-style **prompt
   history**: press ↑/↓ to recall, edit, and re-run previous prompts.
+- **Chat history** — your last 20 chats are kept in this browser and reopen from
+  the History button in the panel; rename or delete one, clear them all, or
+  switch history off in Settings → Chat history. It keeps what you see in the
+  chat (your messages and the replies), not screenshots or page contents, and a
+  chat that touches a banking, payment or crypto site is never saved.
 - **Scheduled tasks** — run a prompt on a repeating schedule (hourly / daily /
   weekly, or any interval) while Chrome is open; the result arrives as a
   notification. Unattended runs act without asking and decline purchases/deletions.
@@ -107,7 +112,7 @@ genuinely agentic, and usable with any LLM — including fully local models.**
   the browser — extending it well beyond the page.
 - **Context menu**: right-click a selection to ask about it, or summarize a page.
 - **Streaming responses** and a live view of every action the agent takes.
-- **Local-first & private**: keys and settings live in `chrome.storage.local`;
+- **Local-first & private**: keys, settings and chat history live in `chrome.storage.local`;
   requests go straight to your chosen provider — plus, only if you switch on
   Smart checks, the decision endpoint you picked for them.
 
@@ -299,6 +304,7 @@ src/background/
   tools.js                    browser-control tool defs + execution
   permissions.js              per-site permission logic
   storage.js                  chrome.storage wrapper
+  sessions.js                 chat history: what is saved, caps, titles (pure)
 src/content/content-script.js page reading (element map) + action execution
 src/sidepanel/                chat UI
 src/options/                  settings UI

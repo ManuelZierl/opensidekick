@@ -412,6 +412,7 @@ async function main() {
       "";
     const toolsOf = (events) => events.filter((e) => e.kind === "tool_start").map((e) => e.name);
     const warningsOf = (events) => events.filter((e) => e.kind === "warning").map((e) => e.text || "");
+    const listSessions = () => optPage.evaluate((t) => chrome.runtime.sendMessage({ type: t }), MSG.LIST_SESSIONS);
 
     // === (1) A paraphrased injection the regexes miss =======================
     check(!detectInjection(PARAPHRASE).suspected, "regex floor does NOT flag the paraphrased injection (so the check below is the only thing that can)");
@@ -501,6 +502,12 @@ async function main() {
       !dec.requests.some((b) => b.questions && b.questions.risky),
       `no-downgrade: the classifier isn't consulted on a sensitive host either (${dec.requests.length} request(s))`,
     );
+    // Chat history keeps banking, payment and crypto chats out entirely.
+    const afterBank = await listSessions();
+    check(
+      !!afterBank && !!afterBank.currentId && !afterBank.items.some((i) => i.id === afterBank.currentId),
+      `sessions: a chat that acted on a bank page is not saved (live ${afterBank && afterBank.currentId}, ${afterBank && afterBank.items.length} saved)`,
+    );
 
     // === (3c) The page-text check never runs on a sensitive origin ==========
     dec.requests = [];
@@ -518,6 +525,15 @@ async function main() {
     check(
       !warningsOf(bankRead.events).some((t) => /Smart check/.test(t)),
       `sensitive carve-out: no smart warning either (got ${JSON.stringify(warningsOf(bankRead.events))})`,
+    );
+    const afterBankRead = await listSessions();
+    check(
+      !!afterBankRead && !!afterBankRead.currentId && !afterBankRead.items.some((i) => i.id === afterBankRead.currentId),
+      `sessions: a chat that read a bank page is not saved (live ${afterBankRead && afterBankRead.currentId}, ${afterBankRead && afterBankRead.items.length} saved)`,
+    );
+    check(
+      bankRead.events.some((e) => e.kind === "note" && /banking, payment or crypto/.test(e.text || "")),
+      "sessions: and the chat says it won't be saved",
     );
     dec.noul.injection = 0.02;
 

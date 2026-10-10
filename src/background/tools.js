@@ -434,7 +434,9 @@ async function runJavascript(ctx, code) {
     const r = results && results[0] && results[0].result;
     if (!r) return { ok: false, error: "No result (restricted page, or the script couldn't run)." };
     if (r.ok === false) return { ok: false, error: "JavaScript error: " + r.error };
-    return { ok: true, result: String(r.result).slice(0, 4000) };
+    // The URL lets chat history spot a sensitive page read this way.
+    const tab = await chrome.tabs.get(tabId).catch(() => null);
+    return { ok: true, url: tab ? tab.url : undefined, result: String(r.result).slice(0, 4000) };
   } catch (e) {
     return { ok: false, error: "Could not run JavaScript here: " + (e.message || e) };
   }
@@ -455,14 +457,14 @@ async function screenshot(ctx) {
   // browser's gray backdrop, which reads poorly for the model.
   const direct = await fetchDirectImage(tab.url || "");
   if (direct) {
-    return { ok: true, image: direct, note: "Loaded the full-resolution image from this tab." };
+    return { ok: true, url: tab.url, image: direct, note: "Loaded the full-resolution image from this tab." };
   }
 
   try {
     // captureVisibleTab grabs the active tab of the window as a PNG data URL.
     const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "png" });
     const data = dataUrl.split(",")[1];
-    return { ok: true, image: { mediaType: "image/png", data }, note: "Screenshot captured." };
+    return { ok: true, url: tab.url, image: { mediaType: "image/png", data }, note: "Screenshot captured." };
   } catch (e) {
     return {
       ok: false,
