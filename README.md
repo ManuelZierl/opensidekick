@@ -142,6 +142,7 @@ add a provider:
 | Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai` | OpenAI-compatible endpoint. |
 | Groq | `https://api.groq.com/openai/v1` | Very fast open-weight models. |
 | Venice AI | `https://api.venice.ai/api/v1` | Privacy-focused; open-weight + frontier models. |
+| TypeSafe (Jev) | `https://api.typesafe.ai/v1/systemone` | **Smart checks only** — a decision model, not a chat model; set it up in Settings → Smart checks (see below). |
 | **Ollama** (local) | `http://localhost:11434/v1` | No key. See CORS note below. |
 | **LM Studio** (local) | `http://localhost:1234/v1` | No key. |
 | Custom | your URL | Anything speaking `/chat/completions`. |
@@ -169,7 +170,9 @@ OLLAMA_ORIGINS='chrome-extension://*' ollama serve
 
 Settings → **Smart checks** turns on optional yes/no safety verdicts from
 TypeSafe's Jev decision model. Pick a key source — one of your OpenRouter
-providers' keys, or a TypeSafe key — switch on the checks you want
+providers' keys (requests go to `openrouter.ai/api/alpha/decisions`), or a
+TypeSafe key from [console.typesafe.ai](https://console.typesafe.ai) (requests
+go to `api.typesafe.ai/v1/systemone`) — switch on the checks you want
 (risky-action confirmation, page-text injection classifier, change-only
 notifications for scheduled tasks), and press **Test** to see a live request
 answer. Everything is off by default; if a check is off, fails, or times out,
