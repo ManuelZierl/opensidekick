@@ -5,6 +5,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-10-10
+
 ### Added
 
 - **Suggested models per provider.** Each preset in Settings → Providers shows

@@ -274,7 +274,7 @@ async function main() {
     await renderScene(context, {
       layout: "wide",
       title: "Bring your own LLM — your keys stay local",
-      subtitle: "OpenRouter, OpenAI, Claude, Gemini, Groq, or a local model via Ollama / LM Studio.",
+      subtitle: "OpenRouter, OpenAI, Claude, Gemini, Groq, Venice AI, or a local model via Ollama / LM Studio.",
       img: dataUri(optionsShot),
     }, "02-providers.png");
 
