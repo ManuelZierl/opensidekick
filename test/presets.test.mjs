@@ -45,6 +45,16 @@ for (const [id, models] of Object.entries(EXPECTED)) {
   assert(JSON.stringify(got) === JSON.stringify(models), `${id}: suggests ${models.join(", ")} (got ${got.join(", ")})`);
 }
 
+// ---- Default model: the first suggestion (Ollama: the light pick) ----
+for (const p of PROVIDER_PRESETS) {
+  if (!p.suggestions.length) continue;
+  // LM Studio stays empty: its ids depend on what the user downloaded, and a
+  // pre-filled id would fail the auto-test the moment the preset is added.
+  const want = p.id === "lmstudio" ? "" : p.id === "ollama" ? p.suggestions.find((x) => x.kind === "light")?.model : p.suggestions[0].model;
+  assert(p.defaultModel === want, `${p.id}: defaultModel is ${JSON.stringify(want)} (got ${JSON.stringify(p.defaultModel)})`);
+}
+assert(byId.custom.defaultModel === "", `custom: no default model (got ${JSON.stringify(byId.custom.defaultModel)})`);
+
 assert(MODELS_PAGE_URL === "https://opensidekick.app/models/", `MODELS_PAGE_URL is the models page (got ${MODELS_PAGE_URL})`);
 
 // ---- presetFor ----

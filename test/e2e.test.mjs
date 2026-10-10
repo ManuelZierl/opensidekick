@@ -459,7 +459,7 @@ async function main() {
         };
       });
       check(vCard.baseUrl === VENICE_BASE, `venice: the card pre-fills Venice's base URL (got "${vCard.baseUrl}")`);
-      check(vCard.model === "qwen-3-8-27b", `venice: the card pre-fills the default model (got "${vCard.model}")`);
+      check(vCard.model === "claude-sonnet-5-5", `venice: the card pre-fills the default model (got "${vCard.model}")`);
       check(vCard.keyHref === "https://venice.ai/settings/api", `venice: the card links to Venice's key page (got "${vCard.keyHref}")`);
       const readProviders = () =>
         vPage.evaluate(async (key) => {
@@ -550,8 +550,8 @@ async function main() {
       await setField(".api-key", "mock-key", ["change"]);
       const keyedDone = await awaitStatus(/This model can drive OpenSidekick/, 20000);
       check(
-        keyedDone && probesFor("gpt-4o").length === 3,
-        `auto-test: pasting the key probes the hosted host (got ${probesFor("gpt-4o").join(",") || "none"})`,
+        keyedDone && probesFor("gpt-5.6-terra").length === 3,
+        `auto-test: pasting the key probes the hosted host (got ${probesFor("gpt-5.6-terra").join(",") || "none"})`,
       );
 
       // Take the key away again and pick a model the mock has never seen: the

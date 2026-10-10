@@ -40,7 +40,7 @@ const venice = venicePresets[0] || {};
 assert(venice.name === "Venice AI", `preset name "Venice AI" (got ${JSON.stringify(venice.name)})`);
 assert(venice.type === "openai", `preset type "openai" (got ${JSON.stringify(venice.type)})`);
 assert(venice.baseUrl === "https://api.venice.ai/api/v1", `preset baseUrl (got ${JSON.stringify(venice.baseUrl)})`);
-assert(venice.defaultModel === "qwen-3-8-27b", `preset defaultModel qwen-3-8-27b (got ${JSON.stringify(venice.defaultModel)})`);
+assert(venice.defaultModel === "claude-sonnet-5-5", `preset defaultModel claude-sonnet-5-5 (got ${JSON.stringify(venice.defaultModel)})`);
 assert(venice.keyUrl === "https://venice.ai/settings/api", `preset keyUrl (got ${JSON.stringify(venice.keyUrl)})`);
 
 const ids = PROVIDER_PRESETS.map((p) => p.id);

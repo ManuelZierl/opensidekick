@@ -49,13 +49,16 @@ export const MODELS_PAGE_URL = "https://opensidekick.app/models/";
 // of closed / open / budget / light) are a static hint, dated 2026-10-10: they
 // ship with the extension and go stale between releases. MODELS_PAGE_URL is
 // the living list.
+//
+// `defaultModel` follows the first suggestion (Ollama: the light pick; LM Studio stays empty because its ids depend on what the user downloaded, since
+// the quality pick needs more memory than most laptops have). Dated 2026-10-10.
 export const PROVIDER_PRESETS = [
   {
     id: "openrouter",
     name: "OpenRouter",
     type: "openai",
     baseUrl: "https://openrouter.ai/api/v1",
-    defaultModel: "anthropic/claude-sonnet-4.5",
+    defaultModel: "anthropic/claude-sonnet-5.5",
     keyUrl: "https://openrouter.ai/keys",
     hint: "One key, hundreds of models. Recommended default.",
     suggestions: [
@@ -68,7 +71,7 @@ export const PROVIDER_PRESETS = [
     name: "OpenAI",
     type: "openai",
     baseUrl: "https://api.openai.com/v1",
-    defaultModel: "gpt-4o",
+    defaultModel: "gpt-5.6-terra",
     keyUrl: "https://platform.openai.com/api-keys",
     hint: "GPT models directly from OpenAI.",
     suggestions: [
@@ -81,7 +84,7 @@ export const PROVIDER_PRESETS = [
     name: "Anthropic (Claude)",
     type: "anthropic",
     baseUrl: "https://api.anthropic.com/v1",
-    defaultModel: "claude-sonnet-4-5",
+    defaultModel: "claude-sonnet-5-5",
     keyUrl: "https://console.anthropic.com/settings/keys",
     hint: "Claude models directly from Anthropic.",
     suggestions: [
@@ -94,7 +97,7 @@ export const PROVIDER_PRESETS = [
     name: "Google Gemini (OpenAI-compatible)",
     type: "openai",
     baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
-    defaultModel: "gemini-2.0-flash",
+    defaultModel: "gemini-3.8-flash",
     keyUrl: "https://aistudio.google.com/apikey",
     hint: "Gemini via Google's OpenAI-compatible endpoint.",
     suggestions: [
@@ -107,7 +110,7 @@ export const PROVIDER_PRESETS = [
     name: "Groq",
     type: "openai",
     baseUrl: "https://api.groq.com/openai/v1",
-    defaultModel: "llama-3.3-70b-versatile",
+    defaultModel: "qwen/qwen3.8-27b",
     keyUrl: "https://console.groq.com/keys",
     hint: "Very fast open-weight models.",
     suggestions: [
@@ -120,7 +123,7 @@ export const PROVIDER_PRESETS = [
     name: "Venice AI",
     type: "openai",
     baseUrl: "https://api.venice.ai/api/v1",
-    defaultModel: "qwen-3-8-27b",
+    defaultModel: "claude-sonnet-5-5",
     keyUrl: "https://venice.ai/settings/api",
     hint: "Privacy-focused inference. Open-weight and frontier models with tool calling + vision.",
     suggestions: [
@@ -133,7 +136,7 @@ export const PROVIDER_PRESETS = [
     name: "Ollama (local)",
     type: "openai",
     baseUrl: "http://localhost:11434/v1",
-    defaultModel: "qwen2.5:7b",
+    defaultModel: "qwen3-vl:8b",
     keyUrl: "",
     hint: "Runs entirely on your machine. No API key needed. Set OLLAMA_ORIGINS to allow the extension.",
     suggestions: [

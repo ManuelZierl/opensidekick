@@ -26,6 +26,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- **Preset defaults refreshed.** Each provider preset now pre-fills its current
+  balanced pick (as of October 2026), e.g. Claude Sonnet 5.5, GPT-5.6 Terra,
+  Gemini 3.8 Flash, Qwen 3.8 27B on Groq, Qwen3-VL 8B for Ollama. LM Studio keeps an empty
+  default because its model ids depend on what you have downloaded.
 - **Visual polish, second pass.** The side panel opens on one quiet question
   ("What should I do on this page?") just above the composer instead of a
   landing-page hero, and Send is now an icon button inside the input with the
