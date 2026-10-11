@@ -149,8 +149,8 @@ add a provider:
 | Groq | `https://api.groq.com/openai/v1` | Very fast open-weight models. |
 | Venice AI | `https://api.venice.ai/api/v1` | Privacy-focused; open-weight + frontier models. |
 | TypeSafe (Jev) | `https://api.typesafe.ai/v1/systemone` | **Smart checks only** — a decision model, not a chat model; set it up in Settings → Smart checks (see below). |
-| **Ollama** (local) | `http://localhost:11434/v1` | No key. See CORS note below. |
-| **LM Studio** (local) | `http://localhost:1234/v1` | No key. |
+| **Ollama** (local) | `http://localhost:11434/v1` | No key. Needs `OLLAMA_ORIGINS`, see [Using a local model](#using-a-local-model-ollama-lm-studio). |
+| **LM Studio** (local) | `http://localhost:1234/v1` | No key. See [Using a local model](#using-a-local-model-ollama-lm-studio). |
 | Custom | your URL | Anything speaking `/chat/completions`. |
 
 Paste your API key, click **Fetch models** (or type a model id), select the
@@ -167,19 +167,33 @@ open Settings.
 
 > **Tool use / agentic actions require a model that supports function calling.**
 > Most hosted models do. For local models via Ollama, pick a tool-capable model
-> (e.g. `qwen2.5`, `llama3.1`). Models without tool support still work for chat
+> (e.g. `qwen3-vl`, `llama3.1`). Models without tool support still work for chat
 > and summarization.
 
-### Using a local model (Ollama)
+### Using a local model (Ollama, LM Studio)
 
-Ollama must allow the extension's origin to call it. Start Ollama with:
+**Ollama** refuses requests from browser extensions until you allow them. The
+sign: **Fetch models** or the model test in Settings fails with a `403`, even
+though http://localhost:11434 opens in a tab and says "Ollama is running". Set
+`OLLAMA_ORIGINS` where Ollama runs, then restart it:
 
-```bash
-# macOS/Linux
-OLLAMA_ORIGINS='chrome-extension://*' ollama serve
-```
+| How you run Ollama | Do this |
+| --- | --- |
+| macOS app (menu bar) | `launchctl setenv OLLAMA_ORIGINS "chrome-extension://*"`, then quit and reopen Ollama (again after each reboot) |
+| Windows app (tray) | Quit Ollama from the tray → search the Start menu for "environment variables" → *Edit environment variables for your account* → under User variables click **New…**, name `OLLAMA_ORIGINS`, value `chrome-extension://*` → start Ollama again |
+| Linux (systemd) | `sudo systemctl edit ollama.service`, add `[Service]` and `Environment="OLLAMA_ORIGINS=chrome-extension://*"`, then `sudo systemctl daemon-reload && sudo systemctl restart ollama` |
+| Terminal (macOS/Linux) | Quit the Ollama app if it is running, then `OLLAMA_ORIGINS="chrome-extension://*" ollama serve` |
+| Docker | add `-e OLLAMA_ORIGINS="chrome-extension://*"` to your `docker run` |
 
-(or set `OLLAMA_ORIGINS` in your environment / launchd / systemd unit).
+To allow only OpenSidekick, use its id instead of `*`:
+`chrome-extension://idffinkmnnajgpjjonpmmaikjbpjmngk` is the Web Store build
+(an unpacked build has its own id, shown on `chrome://extensions`). Separate
+several values with commas and no spaces; they add to Ollama's defaults.
+Reference: the [Ollama FAQ](https://docs.ollama.com/faq).
+
+**LM Studio**: start the server in the Developer tab. If **Fetch models** or the
+model test fails while the server is running, switch on **Enable CORS** in the
+server settings, or start the server with `lms server start --cors`.
 
 ### Smart checks (optional)
 
