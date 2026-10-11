@@ -5,13 +5,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-10-11
+
 ### Added
 
 - **Chat history.** The side panel now keeps your chats in this browser, so
-  closing the panel or restarting Chrome no longer loses the conversation. A
+  restarting Chrome or starting a new chat no longer loses the conversation. A
   History button in the top bar lists your 20 most recent chats (title, when,
   and which model answered); open one to carry on where you left off, rename
-  it, or delete it, and **Clear all** removes every saved chat at once.
+  it, or delete it, and **Clear all** removes every saved chat, your prompt
+  history and the open chat.
   **New chat** now starts a fresh chat and keeps the previous one in History.
   History saves what you see in the chat — your messages and the assistant's
   replies — not screenshots, the page text the assistant read, or the steps it
@@ -20,18 +23,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   screenshots a site on the built-in sensitive-site list (banks, payment
   processors, crypto exchanges) is never saved, and the chat says so.
   Settings → **Chat history** has a "Keep chat history on this device" switch,
-  on by default (including for existing installs, which see a one-time note in
-  the chat after their first saved chat); turning it off deletes saved chats
+  on by default, including for existing installs (everyone sees a one-time note
+  in the chat after their first saved chat); turning it off deletes saved chats
   and your prompt history and stops saving them, so ↑ recall then only covers
-  the panel you have open. Nothing leaves your browser. Scheduled tasks are not
-  added to History. (#1)
+  the panel you have open. Saved chats are never sent anywhere by themselves;
+  continuing one sends its earlier messages to the model you are using at that
+  moment. Scheduled tasks are not added to History. (#1)
 
 ### Fixed
 
 - **A very long chat could fail on the next prompt after the worker restarted.**
   When the chat outgrew session storage, the fallback kept the last 20 messages,
   which could begin mid-way through a tool call and make the provider reject the
-  next request. The fallback now keeps whole turns.
+  next request. The fallback now keeps the chat's text as whole turns (without
+  tool steps), which providers accept.
 - **An approved plan no longer shows up as a message from you.** Reopening a
   chat that used plan approval used to show the approval ("I approve this
   plan…") as a user bubble.

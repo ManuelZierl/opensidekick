@@ -99,7 +99,8 @@ genuinely agentic, and usable with any LLM — including fully local models.**
   the History button in the panel; rename or delete one, clear them all, or
   switch history off in Settings → Chat history. It keeps what you see in the
   chat (your messages and the replies), not screenshots or page contents, and a
-  chat that touches a banking, payment or crypto site is never saved.
+  chat in which the assistant reads, opens or screenshots a banking, payment or
+  crypto site is never saved.
 - **Scheduled tasks** — run a prompt on a repeating schedule (hourly / daily /
   weekly, or any interval) while Chrome is open; the result arrives as a
   notification. Unattended runs act without asking and decline purchases/deletions.
@@ -221,6 +222,11 @@ check sends.
 
 - **Your keys never leave your browser** except in the request to the provider
   you configured. There is no OpenSidekick server and no analytics.
+- **Chat history (on by default)** keeps your messages and the replies in this
+  browser only; anything you paste into a prompt, such as a password, is saved
+  with the chat, so delete that chat afterwards. Continuing a saved chat sends
+  its earlier messages to the model you are using now. Turn it off in Settings →
+  Chat history.
 - **Smart checks (optional, off by default)**: switching them on in Settings →
   Smart checks adds a second destination for short page extracts — the decision
   endpoint you pick, either `https://openrouter.ai/api/alpha/decisions` (with

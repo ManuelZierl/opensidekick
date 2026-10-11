@@ -14,7 +14,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
-import { STORAGE_KEY } from "../src/common/constants.js";
+import { STORAGE_KEY, HISTORY_NOTICE_KEY } from "../src/common/constants.js";
 
 const EXT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const RAW_DIR = path.join(EXT_DIR, "assets", "video-raw");
@@ -261,11 +261,11 @@ async function main() {
 
     const setup = await context.newPage();
     await setup.goto(`chrome-extension://${extId}/src/options/options.html`, { waitUntil: "load" });
-    await setup.evaluate(([k, c]) => chrome.storage.local.set({ [k]: c }), [STORAGE_KEY, {
+    await setup.evaluate(([k, c, nk]) => chrome.storage.local.set({ [k]: c, [nk]: true }), [STORAGE_KEY, {
       providers: [{ id: "openrouter", name: "OpenRouter", type: "openai", baseUrl: "http://127.0.0.1:8080/v1", apiKey: "sk-or-demo", model: "your-model", models: ["your-model"] }],
       activeProviderId: "openrouter", activeModel: "your-model", sitePermissions: {},
       settings: { autonomy: "ask", maxSteps: 8, maxTokens: 512, temperature: 0.2, enableVision: true },
-    }]);
+    }, HISTORY_NOTICE_KEY]);
     await setup.close();
 
     // Open a fresh page+panel pair for a scene; panel starts a clean chat.

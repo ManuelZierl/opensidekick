@@ -11,7 +11,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
-import { STORAGE_KEY, MSG } from "../src/common/constants.js";
+import { STORAGE_KEY, MSG, HISTORY_NOTICE_KEY } from "../src/common/constants.js";
 
 const EXT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const OUT_DIR = path.join(EXT_DIR, "assets", "screenshots");
@@ -192,7 +192,7 @@ async function seed(page, baseUrl) {
     sitePermissions: { "https://mail.google.com": "allow" },
     settings: { autonomy: "auto", maxSteps: 10, maxTokens: 1024, temperature: 0.4 },
   };
-  await page.evaluate(([key, cfg]) => chrome.storage.local.set({ [key]: cfg }), [STORAGE_KEY, config]);
+  await page.evaluate(([key, cfg, nk]) => chrome.storage.local.set({ [key]: cfg, [nk]: true }), [STORAGE_KEY, config, HISTORY_NOTICE_KEY]);
 }
 
 async function runPanel(context, extId, testPage, base, task) {

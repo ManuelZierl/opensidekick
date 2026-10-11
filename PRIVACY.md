@@ -1,6 +1,6 @@
 # Privacy Policy — OpenSidekick
 
-_Last updated: 2026-10-10_
+_Last updated: 2026-10-11_
 
 OpenSidekick is a browser extension that runs entirely on your device. It has no
 backend server operated by the project and collects no analytics or telemetry.
@@ -18,7 +18,8 @@ backend server operated by the project and collects no analytics or telemetry.
   `chrome.storage.local`: your 20 most recent chats, each with a title, when it
   was started and last used, the model id and provider name that answered, and
   the text of your messages and the assistant's replies (up to about 200 KB per
-  chat; the oldest messages are dropped first). Your messages are kept as you
+  chat; the oldest messages are dropped first, and a single very long message
+  is shortened). Your messages are kept as you
   typed them, so a password or key you paste into one is saved with the chat:
   delete that chat afterwards. It does not store screenshots, the page text or
   element maps the assistant read, or the actions it took. A chat in which the
@@ -111,9 +112,9 @@ Smart checks disabled.
 
 - Remove a provider or key at any time in Settings.
 - Manage or revoke per-site permissions in Settings → Site permissions.
-- Delete a saved chat from the side panel's History menu, or all of them with
-  **Clear all** there or in Settings → Chat history. Turn chat history off to
-  delete it and stop saving.
+- Delete a saved chat from the side panel's History menu, or all of them (with
+  your prompt history) with **Clear all** there or **Clear history** in Settings
+  → Chat history. Turn chat history off to delete it and stop saving.
 - Uninstalling the extension deletes all locally stored data.
 
 ## Contact

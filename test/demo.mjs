@@ -13,7 +13,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
-import { STORAGE_KEY, MSG } from "../src/common/constants.js";
+import { STORAGE_KEY, MSG, HISTORY_NOTICE_KEY } from "../src/common/constants.js";
 
 const EXT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const VIDEO_DIR = path.join(EXT_DIR, "assets", "demo-raw");
@@ -147,19 +147,23 @@ async function main() {
 
     const setup = await context.newPage();
     await setup.goto(`chrome-extension://${extId}/src/options/options.html`, { waitUntil: "load" });
-    await setup.evaluate(([key, cfg]) => chrome.storage.local.set({ [key]: cfg }), [STORAGE_KEY, {
+    await setup.evaluate(([key, cfg, nk]) => chrome.storage.local.set({ [key]: cfg, [nk]: true }), [STORAGE_KEY, {
       providers: [{ id: "openrouter", name: "OpenRouter", type: "openai", baseUrl: `${base}/v1`, apiKey: "sk-or-demo", model: "your-model", models: ["your-model"] }],
       activeProviderId: "openrouter", activeModel: "your-model", sitePermissions: {},
       settings: { autonomy: "auto", maxSteps: 8, maxTokens: 512, temperature: 0.2, enableVision: false },
-    }]);
+    }, HISTORY_NOTICE_KEY]);
     await setup.close();
 
     const panel = await context.newPage();
+    const recStart = Date.now(); // the panel's video clock starts with the page, i.e. about now
     await panel.setViewportSize({ width: PANEL_W, height: H });
     await panel.goto(`chrome-extension://${extId}/src/sidepanel/sidepanel.html`, { waitUntil: "load" });
-    await sleep(500); // a beat on the empty panel
+    await sleep(1500); // a beat on the empty panel (the GIF starts near the end of it)
 
     await testPage.bringToFront(); // so the agent locks onto the article tab
+    // When the task goes out, in the panel video's clock (seconds since the page
+    // was created); make-demo-gif.sh starts the GIF just before this point.
+    fs.writeFileSync(path.join(VIDEO_DIR, "sent-at.txt"), ((Date.now() - recStart) / 1000).toFixed(2));
     await panel.evaluate(([rt, t]) => chrome.runtime.sendMessage({ type: rt, task: t, newChat: true }),
       [MSG.RUN_TASK, "Add my email alex@example.com to the newsletter, but don't subscribe."]);
     await sleep(350); // let the worker capture the target tab
@@ -173,7 +177,25 @@ async function main() {
       if (idle && answered > 0) break;
       await sleep(200);
     }
-    await sleep(2200); // hold the final frame so the answer is readable
+    // On a busy machine the last reply can still be painting after the worker
+    // reports idle; wait until its text stops changing before the hold.
+    let lastText = null, stableSince = Date.now();
+    const settleStart = Date.now();
+    while (Date.now() - settleStart < 6000) {
+      const text = await panel.$$eval(".msg.assistant", (n) => (n.length ? n[n.length - 1].textContent : "")).catch(() => "");
+      if (text !== lastText) { lastText = text; stableSince = Date.now(); }
+      else if (Date.now() - stableSince >= 800) break;
+      await sleep(100);
+    }
+    // Tell make-demo-gif.sh when the answer finished (seconds since the panel
+    // page, and so its video, was created). The GIF freezes a frame shortly
+    // after that point instead of relying on the recorded tail, which the
+    // recorder sometimes drops.
+    fs.writeFileSync(path.join(VIDEO_DIR, "settled-at.txt"), ((Date.now() - recStart) / 1000).toFixed(2));
+    // The finished panel, straight from the DOM: the GIF ends on this image,
+    // because the screencast sometimes never delivers the last paint.
+    await panel.screenshot({ path: path.join(VIDEO_DIR, "final.png") });
+    await sleep(1500); // a short hold so the recording does not end mid-paint
 
     panelVideoPath = await panel.video().path();
     await panel.close(); // finalizes this page's video
