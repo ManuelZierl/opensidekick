@@ -5,6 +5,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.3.1] — 2026-10-13
+
 ### Fixed
 
 - **The Ollama preset pointed at a thinking model.** Ollama's plain
