@@ -67,12 +67,13 @@ export const MODELS_PAGE_URL = "https://opensidekick.app/models/";
 // are filled in by the user. baseUrl has no trailing slash.
 //
 // `suggestions` (at most two per preset: { model, label, kind, note }, kind one
-// of closed / open / budget / light) are a static hint, dated 2026-10-10: they
-// ship with the extension and go stale between releases. MODELS_PAGE_URL is
-// the living list.
+// of closed / open / budget / light) are a static hint, dated 2026-10-10 (Ollama
+// tags 2026-10-13): they ship with the extension and go stale between releases.
+// MODELS_PAGE_URL is the living list.
 //
 // `defaultModel` follows the first suggestion (Ollama: the light pick; LM Studio stays empty because its ids depend on what the user downloaded, since
-// the quality pick needs more memory than most laptops have). Dated 2026-10-10.
+// the quality pick needs more memory than most laptops have). Dated 2026-10-10
+// (Ollama 2026-10-13).
 export const PROVIDER_PRESETS = [
   {
     id: "openrouter",
@@ -153,16 +154,19 @@ export const PROVIDER_PRESETS = [
     ],
   },
   {
+    // Ollama's plain qwen3-vl:<size> tags are the thinking builds: they spend the
+    // whole reply in "reasoning" and never answer within a small budget
+    // (ollama/ollama#16945), so the presets name the instruct tags.
     id: "ollama",
     name: "Ollama (local)",
     type: "openai",
     baseUrl: "http://localhost:11434/v1",
-    defaultModel: "qwen3-vl:8b",
+    defaultModel: "qwen3-vl:8b-instruct",
     keyUrl: "",
-    hint: "Runs entirely on your machine. No API key needed. Set OLLAMA_ORIGINS to allow the extension.",
+    hint: "Runs entirely on your machine. No API key needed. Set OLLAMA_ORIGINS=chrome-extension://* and restart Ollama.",
     suggestions: [
-      { model: "qwen3-vl:30b", label: "Qwen3-VL 30B", kind: "open", note: "about 20 GB" },
-      { model: "qwen3-vl:8b", label: "Qwen3-VL 8B", kind: "light", note: "about 6 GB" },
+      { model: "qwen3-vl:30b-a3b-instruct", label: "Qwen3-VL 30B", kind: "open", note: "about 20 GB" },
+      { model: "qwen3-vl:8b-instruct", label: "Qwen3-VL 8B", kind: "light", note: "about 6 GB" },
     ],
   },
   {

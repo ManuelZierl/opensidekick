@@ -167,8 +167,8 @@ open Settings.
 
 > **Tool use / agentic actions require a model that supports function calling.**
 > Most hosted models do. For local models via Ollama, pick a tool-capable model
-> (e.g. `qwen3-vl`, `llama3.1`). Models without tool support still work for chat
-> and summarization.
+> (e.g. `qwen3-vl:8b-instruct`, `llama3.1`). Models without tool support still
+> work for chat and summarization.
 
 ### Using a local model (Ollama, LM Studio)
 
@@ -190,6 +190,17 @@ To allow only OpenSidekick, use its id instead of `*`:
 (an unpacked build has its own id, shown on `chrome://extensions`). Separate
 several values with commas and no spaces; they add to Ollama's defaults.
 Reference: the [Ollama FAQ](https://docs.ollama.com/faq).
+
+When the Settings test or **Fetch models** gets the `403`, it now says that
+Ollama blocked the extension and points here.
+
+**Pick the instruct build.** On Ollama, the plain `qwen3-vl`, `qwen3-vl:8b` and
+`qwen3-vl:30b` tags are the thinking builds. They spend the whole reply
+thinking, so OpenSidekick gets no answer and no tool call, and the Settings
+test says "spent the whole budget thinking". Pull `qwen3-vl:8b-instruct`
+(about 6 GB) or `qwen3-vl:30b-a3b-instruct` (about 20 GB) instead, for example
+`ollama pull qwen3-vl:8b-instruct`. Thinking can't be switched off on the
+thinking builds ([ollama/ollama#16945](https://github.com/ollama/ollama/issues/16945)).
 
 **LM Studio**: start the server in the Developer tab. If **Fetch models** or the
 model test fails while the server is running, switch on **Enable CORS** in the

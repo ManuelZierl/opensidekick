@@ -29,7 +29,7 @@ for (const p of PROVIDER_PRESETS) {
 }
 assert(byId.custom.suggestions.length === 0, "custom: no suggestions");
 
-// ---- The exact ids as of 2026-10-10 ----
+// ---- The exact ids as of 2026-10-10 (Ollama: 2026-10-13) ----
 const EXPECTED = {
   openrouter: ["anthropic/claude-sonnet-5.5", "qwen/qwen3-vl-235b-a22b-instruct"],
   venice: ["claude-sonnet-5-5", "qwen3-vl-235b-a22b"],
@@ -37,12 +37,20 @@ const EXPECTED = {
   openai: ["gpt-5.6-terra", "gpt-5.6-luna"],
   google: ["gemini-3.8-flash", "gemini-3.5-flash-lite"],
   groq: ["qwen/qwen3.8-27b", "openai/gpt-oss-20b"],
-  ollama: ["qwen3-vl:30b", "qwen3-vl:8b"],
+  ollama: ["qwen3-vl:30b-a3b-instruct", "qwen3-vl:8b-instruct"],
   lmstudio: ["qwen/qwen3-vl-8b", "mistralai/mistral-small-3.2"],
 };
 for (const [id, models] of Object.entries(EXPECTED)) {
   const got = (byId[id]?.suggestions || []).map((x) => x.model);
   assert(JSON.stringify(got) === JSON.stringify(models), `${id}: suggests ${models.join(", ")} (got ${got.join(", ")})`);
+}
+
+// ---- Ollama: never a bare qwen3-vl tag ----
+// Those are the thinking builds, which spend a small budget thinking and never
+// answer or call a tool (ollama/ollama#16945).
+for (const m of [byId.ollama.defaultModel, ...byId.ollama.suggestions.map((x) => x.model)]) {
+  if (!m.startsWith("qwen3-vl")) continue;
+  assert(m.includes("-instruct"), `ollama: ${m} is an instruct tag, not a thinking build`);
 }
 
 // ---- Default model: the first suggestion (Ollama: the light pick) ----

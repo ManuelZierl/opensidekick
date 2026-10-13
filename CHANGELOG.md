@@ -5,6 +5,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **The Ollama preset pointed at a thinking model.** Ollama's plain
+  `qwen3-vl:8b` and `qwen3-vl:30b` tags are thinking builds: they spend the
+  whole reply thinking, so the agent got no answer and no tool call, and the
+  model test in Settings said tools didn't work. The preset now uses
+  `qwen3-vl:8b-instruct` (about 6 GB), with `qwen3-vl:30b-a3b-instruct` (about
+  20 GB) as the bigger pick. If you added Ollama before this release, run
+  `ollama pull qwen3-vl:8b-instruct`, then change the model to
+  `qwen3-vl:8b-instruct` in Settings.
+  ([#3](https://github.com/esterhuizen/opensidekick/issues/3))
+- **The model test and Fetch models now say why a local model failed.** A
+  reasoning model that uses the whole test on thinking gets "spent the whole
+  budget thinking", with the instruct build to use instead where there is one.
+  A local server that answers 403 gets the fix: set `OLLAMA_ORIGINS` for
+  Ollama, or switch on **Enable CORS** in LM Studio. The message points to the
+  README, with a link in the model test. Before, both cases ended in "Tools
+  didn't work".
+
 ## [0.3.0] — 2026-10-11
 
 ### Added

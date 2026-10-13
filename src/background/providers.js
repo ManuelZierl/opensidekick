@@ -23,7 +23,10 @@ const ANTHROPIC_VERSION = "2023-06-01";
 
 /**
  * Call the model once. Streams text via `onDelta` and returns the completed
- * normalized assistant turn: { content, toolCalls, stopReason, raw }.
+ * normalized assistant turn: { content, toolCalls, stopReason, reasoning }.
+ * `reasoning` is whatever a thinking model sent in a separate reasoning field
+ * ("" when none). It never reaches `onDelta`, and nothing outside testModel()
+ * reads it: it is not shown, saved or sent back to the model.
  *
  * @param {object}   provider   { type, baseUrl, apiKey, ... }
  * @param {object}   opts       { model, messages, tools, system, maxTokens,
@@ -41,7 +44,7 @@ export async function listModels(provider) {
     const res = await fetch(`${base}/models`, {
       headers: anthropicHeaders(provider),
     });
-    if (!res.ok) throw new Error(`Models request failed: ${res.status}`);
+    if (!res.ok) throw statusError(`Models request failed: ${res.status}`, res.status);
     const data = await res.json();
     return (data.data || []).map((m) => m.id);
   }
@@ -52,7 +55,7 @@ export async function listModels(provider) {
   const res = await fetch(url, {
     headers: openaiHeaders(provider),
   });
-  if (!res.ok) throw new Error(`Models request failed: ${res.status}`);
+  if (!res.ok) throw statusError(`Models request failed: ${res.status}`, res.status);
   const data = await res.json();
   return (data.data || []).map((m) => m.id).sort();
 }
@@ -77,7 +80,10 @@ const PROBE_STAGES = ["text", "tools", "vision"];
  *                       fires with "text", "tools", "vision" just before each
  *                       probe and "done" after the last; signal cancels the run.
  *
- * Returns { text, tools, vision }, each { status: "ok"|"warn"|"fail", detail }.
+ * Returns { text, tools, vision }, each { status: "ok"|"warn"|"fail", detail },
+ * plus httpStatus on a probe whose request got an HTTP error. thinking: true
+ * on a probe means a reasoning model spent that probe's whole budget thinking;
+ * thinking: true on the result means it did so on at least one probe.
  * A cancelled run returns what it had plus aborted: true — it never throws for
  * the abort, since a caller that cancelled has nothing to handle.
  */
@@ -97,6 +103,12 @@ export async function testModel(provider, model, opts = {}) {
     if (onProgress) onProgress(stage, out);
     return true;
   };
+  const thought = (r, answered) => {
+    if (!onlyThought(r, answered)) return false;
+    out.thinking = true;
+    return true;
+  };
+  const withStatus = (res, e) => (typeof e?.status === "number" ? { ...res, httpStatus: e.status } : res);
 
   // 1. Text — does the model respond at all?
   if (!begin("text")) return cancelFrom("text");
@@ -109,12 +121,14 @@ export async function testModel(provider, model, opts = {}) {
       signal,
     });
     const said = (r.content || "").trim();
-    out.text = said
-      ? { status: "ok", detail: said.slice(0, 40) }
-      : { status: "warn", detail: "empty response" };
+    out.text = thought(r, !!said)
+      ? { status: "warn", detail: "spent the whole budget thinking, no answer", thinking: true }
+      : said
+        ? { status: "ok", detail: said.slice(0, 40) }
+        : { status: "warn", detail: "empty response" };
   } catch (e) {
     if (stopped()) return cancelFrom("text");
-    out.text = { status: "fail", detail: shortErr(e) };
+    out.text = withStatus({ status: "fail", detail: shortErr(e) }, e);
   }
 
   // 2. Tools — does the model actually call a tool we give it?
@@ -136,13 +150,18 @@ export async function testModel(provider, model, opts = {}) {
     });
     out.tools = r.toolCalls && r.toolCalls.length
       ? { status: "ok", detail: "called " + r.toolCalls[0].name }
-      : { status: "warn", detail: "accepted tools but didn't call one" };
+      : thought(r, false)
+        ? { status: "warn", detail: "spent the whole budget thinking, no tool call", thinking: true }
+        : { status: "warn", detail: "accepted tools but didn't call one" };
   } catch (e) {
     if (stopped()) return cancelFrom("tools");
     const m = shortErr(e);
-    out.tools = /tool|function[- ]?call/i.test(m)
-      ? { status: "fail", detail: "no tool-calling endpoint for this model" }
-      : { status: "fail", detail: m };
+    out.tools = withStatus(
+      /tool|function[- ]?call/i.test(m)
+        ? { status: "fail", detail: "no tool-calling endpoint for this model" }
+        : { status: "fail", detail: m },
+      e,
+    );
   }
 
   // 3. Vision — can the model see a solid-red image?
@@ -156,19 +175,34 @@ export async function testModel(provider, model, opts = {}) {
       signal,
     });
     const said = (r.content || "").trim().toLowerCase();
-    if (/red/.test(said)) out.vision = { status: "ok", detail: "identified the test image" };
+    if (thought(r, !!said)) out.vision = { status: "warn", detail: "spent the whole budget thinking, no answer", thinking: true };
+    else if (/red/.test(said)) out.vision = { status: "ok", detail: "identified the test image" };
     else if (said) out.vision = { status: "warn", detail: `responded "${said.slice(0, 20)}" (couldn't identify it)` };
     else out.vision = { status: "warn", detail: "no answer" };
   } catch (e) {
     if (stopped()) return cancelFrom("vision");
     const m = shortErr(e);
-    out.vision = /image|vision|multimodal|not support|modality/i.test(m)
-      ? { status: "fail", detail: "model rejected the image (no vision)" }
-      : { status: "fail", detail: m };
+    out.vision = withStatus(
+      /image|vision|multimodal|not support|modality/i.test(m)
+        ? { status: "fail", detail: "model rejected the image (no vision)" }
+        : { status: "fail", detail: m },
+      e,
+    );
   }
 
   if (onProgress) onProgress("done", out);
   return out;
+}
+
+// A reasoning model that spent a probe's whole budget thinking: its thoughts
+// came back, in a reasoning field or as an inline <think> block the token cap
+// cut off, but the answer (`answered`) did not. A model that thought briefly
+// and then answered in text (stopping on its own) is not flagged.
+function onlyThought(r, answered) {
+  const content = (r.content || "").trimStart();
+  const cutOff = r.stopReason === "length";
+  if (cutOff && content.startsWith("<think>") && !content.includes("</think>")) return true;
+  return !answered && !!(r.reasoning || "").trim() && (cutOff || !content.trim());
 }
 
 // Pull the provider's human-readable message out of our wrapped error, trimmed.
@@ -268,6 +302,10 @@ async function callOpenAI(provider, opts) {
   if (!res.ok) throw await httpError(res);
 
   let content = "";
+  // Thinking models stream their thoughts in a separate field: "reasoning" on
+  // Ollama, "reasoning_content" on vLLM, LM Studio and DeepSeek-style servers.
+  // Kept apart from content and never streamed to onDelta.
+  let reasoning = "";
   const toolAccum = new Map(); // index -> { id, name, argChunks: [] }
   let stopReason = null;
 
@@ -286,6 +324,8 @@ async function callOpenAI(provider, opts) {
       content += delta.content;
       opts.onDelta && opts.onDelta(delta.content);
     }
+    if (typeof delta.reasoning === "string") reasoning += delta.reasoning;
+    if (typeof delta.reasoning_content === "string") reasoning += delta.reasoning_content;
     if (delta.tool_calls) {
       for (const tc of delta.tool_calls) {
         const idx = tc.index ?? 0;
@@ -309,6 +349,7 @@ async function callOpenAI(provider, opts) {
     content,
     toolCalls,
     stopReason: toolCalls.length ? "tool_use" : stopReason || "stop",
+    reasoning,
   };
 }
 
@@ -453,6 +494,7 @@ async function callAnthropic(provider, opts) {
     content,
     toolCalls,
     stopReason: toolCalls.length ? "tool_use" : stopReason || "end_turn",
+    reasoning: "",
   };
 }
 
@@ -501,8 +543,12 @@ async function httpError(res) {
   } catch {
     /* ignore */
   }
-  const err = new Error(`Provider request failed (${res.status}): ${detail.slice(0, 500)}`);
-  err.status = res.status;
+  return statusError(`Provider request failed (${res.status}): ${detail.slice(0, 500)}`, res.status);
+}
+
+function statusError(message, status) {
+  const err = new Error(message);
+  err.status = status;
   return err;
 }
 

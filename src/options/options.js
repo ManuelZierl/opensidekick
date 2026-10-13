@@ -11,6 +11,7 @@ import {
   PROMPT_HISTORY_KEY,
 } from "../common/constants.js";
 import { presetFor } from "../common/presets.js";
+import { isLocalBaseUrl, thinkingVerdict, corsHint } from "../common/model-test-messages.js";
 import { loadConfig, saveConfig, loadSessionIndex } from "../background/storage.js";
 import { listModels, testModel } from "../background/providers.js";
 import { connectServer, listTools } from "../background/mcp.js";
@@ -292,7 +293,10 @@ async function fetchModels(provider, btn, status, datalist) {
     persist();
     status.textContent = `Found ${models.length} models. Start typing to filter.`;
   } catch (e) {
-    status.textContent = "Could not fetch models: " + (e.message || e);
+    const hint = corsHint(provider, e.status);
+    status.textContent = hint
+      ? `Could not fetch models. ${hint.text} See the README: Using a local model.`
+      : "Could not fetch models: " + (e.message || e);
     status.style.color = "var(--os-bad-ink)";
   } finally {
     btn.disabled = false;
@@ -328,17 +332,6 @@ function stopTest(card) {
 // answer twice over, so the second run is dropped. Held in memory only — it
 // carries the key and is never rendered or logged.
 const testFingerprint = (provider, model) => JSON.stringify([model, provider.baseUrl || "", provider.apiKey || ""]);
-
-// Local models need no key, so a loopback base URL is testable the moment a
-// model id is there.
-function isLocalBaseUrl(url) {
-  try {
-    const host = new URL(url).hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
-    return host === "localhost" || host === "127.0.0.1" || host === "::1" || host.endsWith(".localhost");
-  } catch {
-    return false;
-  }
-}
 
 function hostOf(url) {
   try {
@@ -509,9 +502,25 @@ async function runModelTest(provider, modelInput, btn, statusEl, opts = {}) {
       setStatus(statusEl, `<span class="test-line warn">Couldn't reach ${escapeHtml(host)} — start your local server and press Test.</span>`);
       return;
     }
+    // A local server that refuses the extension's origin fails every probe the
+    // same way; the fix is a server setting, not a different model.
+    const hint = r.text.status === "fail" ? corsHint(provider, r.text.httpStatus) : null;
+    if (hint) {
+      setStatus(
+        statusEl,
+        [
+          nameLine("Tested", false),
+          line("Text", r.text),
+          `<span class="test-line fail">${escapeHtml(hint.text)} <a href="${escapeHtml(hint.readmeUrl)}" target="_blank" rel="noopener">How to allow it (README)</a></span>`,
+        ].join(""),
+      );
+      return;
+    }
     let verdict = "";
     if (r.tools.status === "ok" && (r.vision.status === "ok" || r.vision.status === "warn")) {
       verdict = `<span class="test-line ok">This model can drive OpenSidekick.${r.vision.status === "ok" ? " Vision works too." : ""}</span>`;
+    } else if (r.tools.thinking) {
+      verdict = `<span class="test-line fail">${escapeHtml(thinkingVerdict(provider, model))}</span>`;
     } else if (r.tools.status !== "ok") {
       verdict = `<span class="test-line fail">Tools didn't work — the agent can't act with this model. Pick a tool-capable one.</span>`;
     } else if (r.vision.status === "fail") {

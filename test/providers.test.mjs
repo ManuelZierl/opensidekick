@@ -1,5 +1,5 @@
 // Exercises the real callModel() streaming/parsing paths with a mocked fetch.
-import { callModel } from "../src/background/providers.js";
+import { callModel, listModels } from "../src/background/providers.js";
 
 function fakeResponse(chunks) {
   const enc = new TextEncoder();
@@ -47,6 +47,29 @@ assert(r.toolCalls.length === 1, `openai one tool call (got ${r.toolCalls.length
 assert(r.toolCalls[0]?.name === "read_page", `openai tool name read_page (got ${r.toolCalls[0]?.name})`);
 assert(JSON.stringify(r.toolCalls[0]?.args) === "{}", `openai tool args {} (got ${JSON.stringify(r.toolCalls[0]?.args)})`);
 assert(r.stopReason === "tool_use", `openai stopReason tool_use (got ${r.stopReason})`);
+assert(r.reasoning === "", `openai reasoning is "" when the model sent none (got ${JSON.stringify(r.reasoning)})`);
+
+// ---- OpenAI: a thinking model's reasoning stays out of content and onDelta ----
+// Ollama sends it as delta.reasoning; vLLM, LM Studio and DeepSeek-style
+// servers as delta.reasoning_content.
+globalThis.fetch = async () =>
+  fakeResponse([
+    `data: {"choices":[{"delta":{"role":"assistant","reasoning":"Hmm, "}}]}\n\n`,
+    `data: {"choices":[{"delta":{"reasoning":"the user "}}]}\n\n`,
+    `data: {"choices":[{"delta":{"reasoning_content":"wants a word."}}]}\n\n`,
+    `data: {"choices":[{"delta":{"content":"ready"}}]}\n\n`,
+    `data: {"choices":[{"finish_reason":"stop"}]}\n\n`,
+    `data: [DONE]\n\n`,
+  ]);
+let thinkDeltas = "";
+const rt = await callModel(
+  { type: "openai", baseUrl: "http://localhost:11434/v1", apiKey: "" },
+  { model: "m", messages: [{ role: "user", content: "hi" }], onDelta: (t) => (thinkDeltas += t) },
+);
+assert(rt.reasoning === "Hmm, the user wants a word.", `openai reasoning + reasoning_content accumulate into reasoning (got ${JSON.stringify(rt.reasoning)})`);
+assert(rt.content === "ready", `openai content is unaffected by reasoning (got ${JSON.stringify(rt.content)})`);
+assert(thinkDeltas === "ready", `openai onDelta never receives reasoning text (got ${JSON.stringify(thinkDeltas)})`);
+assert(rt.stopReason === "stop", `openai stopReason stop (got ${rt.stopReason})`);
 
 // ---- Anthropic ----
 const anthropicEvents = [
@@ -75,5 +98,19 @@ assert(r2.toolCalls.length === 1, `anthropic one tool call (got ${r2.toolCalls.l
 assert(r2.toolCalls[0]?.name === "click_element", `anthropic tool name click_element`);
 assert(JSON.stringify(r2.toolCalls[0]?.args) === '{"ref":5}', `anthropic tool args {ref:5} (got ${JSON.stringify(r2.toolCalls[0]?.args)})`);
 assert(r2.stopReason === "tool_use", `anthropic stopReason tool_use (got ${r2.stopReason})`);
+assert(r2.reasoning === "", `anthropic reasoning is "" for shape parity (got ${JSON.stringify(r2.reasoning)})`);
+
+// ---- listModels: a failed request carries the HTTP status ----
+for (const type of ["openai", "anthropic"]) {
+  globalThis.fetch = async () => new Response("", { status: 403 });
+  let err = null;
+  try {
+    await listModels({ type, baseUrl: "http://localhost:11434/v1", apiKey: "" });
+  } catch (e) {
+    err = e;
+  }
+  assert(err && err.message === "Models request failed: 403", `${type} listModels keeps its message (got ${err && err.message})`);
+  assert(err && err.status === 403, `${type} listModels sets err.status (got ${err && err.status})`);
+}
 
 console.log(process.exitCode ? "\nSOME TESTS FAILED" : "\nALL TESTS PASSED");
