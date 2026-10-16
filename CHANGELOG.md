@@ -5,6 +5,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`click_element` fired twice.** The content script dispatched a synthetic
+  click and then also called `el.click()`, so the element's default action ran
+  two times: checkboxes flipped straight back, and forms with a JavaScript
+  submit handler submitted twice. Now exactly one click fires. `double_click`
+  sends two, as a native double-click does. Thanks @reopenpilot.
+  ([#4](https://github.com/esterhuizen/opensidekick/pull/4))
+
 ## [0.3.1] — 2026-10-13
 
 ### Fixed
