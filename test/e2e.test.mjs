@@ -91,6 +91,10 @@ const WIDGET_PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Pre
       <div role="option">English</div><div role="option">Deutsch</div><div role="option">Français</div>
     </div>
   </div>
+  <!-- A textarea that is also a combobox (Google's search box is one). Its
+       default text is stale: what matters is what the user types. -->
+  <label for="q">Search</label>
+  <textarea id="q" role="combobox" aria-expanded="false">old query</textarea>
   <script>
     const box = document.getElementById('lang');
     const list = document.getElementById('lang-list');
@@ -213,14 +217,20 @@ function decide(messages) {
   // Custom combobox: open it, then pick an option from the list it reveals.
   // The summary reports how read_page first described the box.
   if (/set the language/.test(firstUser)) {
-    const box = elements.find((e) => e.role === "combobox");
+    const box = elements.find((e) => e.role === "combobox" && e.tag !== "textarea");
     const option = elements.find((e) => e.role === "option" && e.name === "Deutsch");
+    const area = elements.find((e) => e.tag === "textarea");
     if (n === 0) return { kind: "tool", name: "read_page", args: {} };
     if (n === 1) return { kind: "tool", name: "click_element", args: { ref: box?.ref } };
     if (n === 2) return { kind: "tool", name: "read_page", args: {} };
     if (n === 3) return { kind: "tool", name: "click_element", args: { ref: option?.ref } };
-    const first = parsed.find((p) => Array.isArray(p.elements))?.elements.find((e) => e.role === "combobox");
-    return { kind: "tool", name: "finish", args: { summary: `combobox=${first ? `${first.name}|${first.value}` : "missing"}` } };
+    // Then type into the textarea combobox and read the page again: read_page
+    // must report the typed value, not the textarea's default text.
+    if (n === 4) return { kind: "tool", name: "type_text", args: { ref: area?.ref, text: "new query" } };
+    if (n === 5) return { kind: "tool", name: "read_page", args: {} };
+    const first = parsed.find((p) => Array.isArray(p.elements))?.elements.find((e) => e.role === "combobox" && e.tag !== "textarea");
+    const last = [...parsed].reverse().find((p) => Array.isArray(p.elements))?.elements.find((e) => e.tag === "textarea");
+    return { kind: "tool", name: "finish", args: { summary: `combobox=${first ? `${first.name}|${first.value}` : "missing"} textarea=${last ? last.value : "missing"}` } };
   }
 
   // Injection flag (B): navigate to a hostile page and read it.
@@ -1118,7 +1128,9 @@ async function main() {
     // pick an option. ---
     await testPage.goto(`${base}/widgets`, { waitUntil: "load" });
     const combo = await drive("Set the language to Deutsch.");
-    check(answerOf(combo.events) === "combobox=Language|English", `combobox: read_page lists it as Language = English (got "${answerOf(combo.events)}")`);
+    const comboAnswer = answerOf(combo.events);
+    check(/^combobox=Language\|English\b/.test(comboAnswer), `combobox: read_page lists it as Language = English (got "${comboAnswer}")`);
+    check(/textarea=new query$/.test(comboAnswer), `combobox: a <textarea role=combobox> reports its typed value, not its default text (got "${comboAnswer}")`);
     const lang = await testPage.$eval("#lang-value", (el) => el.textContent).catch(() => "");
     check(lang === "Deutsch", `combobox: the agent picked an option (got "${lang}")`);
 

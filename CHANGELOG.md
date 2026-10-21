@@ -5,6 +5,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **`read_page` lists custom comboboxes.** ARIA comboboxes (`role="combobox"`
+  on a `div` or similar) now appear in the page map with their label and the
+  option currently shown, so the agent can open them and pick an option, as it
+  already could with `<select>`. A `<textarea role="combobox">` keeps reporting
+  what was typed into it. Thanks @reopenpilot.
+  ([#5](https://github.com/esterhuizen/opensidekick/pull/5))
+
 ### Fixed
 
 - **`click_element` fired twice.** The content script dispatched a synthetic

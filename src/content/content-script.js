@@ -110,7 +110,7 @@
     const out = { ref, tag };
     if (role) out.role = role;
     if (type) out.type = type;
-    const customCombobox = role === "combobox" && tag !== "input" && tag !== "select";
+    const customCombobox = role === "combobox" && tag !== "input" && tag !== "select" && tag !== "textarea";
     const name = accessibleName(el, customCombobox ? comboboxText : undefined);
     if (name) out.name = name.slice(0, 160);
     if (tag === "input" || tag === "textarea") {
