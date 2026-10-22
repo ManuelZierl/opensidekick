@@ -314,8 +314,9 @@ Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Development
 
-No build step and no runtime dependencies. Everything is plain ES modules loaded
-directly by Chrome.
+No build step and no npm runtime dependencies. Everything is plain ES modules
+loaded directly by Chrome. The two vendored libraries, markdown-it and Prism, are
+plain files in `src/common/vendor/`.
 
 ```bash
 npm run icons   # regenerate PNG icons (Node only)
@@ -328,6 +329,8 @@ Project layout:
 ```
 manifest.json                 MV3 manifest
 src/common/constants.js       shared config, presets, message types
+src/common/markdown.js        chat Markdown: markdown-it + the link/image policy
+src/common/vendor/            vendored libraries, pinned and byte-verified
 src/background/
   service-worker.js           message routing, conversation state
   agent.js                    the agentic tool-calling loop

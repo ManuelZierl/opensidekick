@@ -7,12 +7,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- **Real Markdown in the chat.** Replies now render headings, tables, nested
+  and ordered lists, blockquotes, task lists, strikethrough and reference
+  links with markdown-it (vendored, pinned, verified against npm). Code fences
+  get a language banner, a Copy button and syntax colours from Prism for 13
+  common languages. Links stay limited to http, https and mailto, images never
+  load (one shows as an `[image: alt text]` marker), and raw HTML stays plain
+  text, so the chat still never loads anything from the web. Single line
+  breaks still break lines. Thanks @kurotope.
+  ([#6](https://github.com/esterhuizen/opensidekick/pull/6))
+
 - **`read_page` lists custom comboboxes.** ARIA comboboxes (`role="combobox"`
   on a `div` or similar) now appear in the page map with their label and the
   option currently shown, so the agent can open them and pick an option, as it
   already could with `<select>`. A `<textarea role="combobox">` keeps reporting
   what was typed into it. Thanks @reopenpilot.
   ([#5](https://github.com/esterhuizen/opensidekick/pull/5))
+
+### Changed
+
+- **Contributing rules.** No npm runtime dependencies still holds; a library
+  may be vendored case by case when it is pinned, byte-verified against the
+  official npm package, and shipped with its license. See CONTRIBUTING.md.
 
 ### Fixed
 

@@ -1,7 +1,7 @@
 # Contributing to OpenSidekick
 
 Thanks for your interest! OpenSidekick is intentionally simple: plain ES modules,
-no build step, no runtime dependencies. That makes it easy to hack on.
+no build step, no npm runtime dependencies. That makes it easy to hack on.
 
 ## Getting set up
 
@@ -20,8 +20,18 @@ npm run icons   # only if you changed the icon generator
 
 Please:
 
-- Keep the no-build, no-dependency constraint. If a change needs a build tool,
-  open an issue to discuss first.
+- Keep the no-build constraint. If a change needs a build tool, open an issue
+  to discuss first.
+- No npm runtime dependencies. A third-party library may be vendored, case by
+  case. Open an issue before adding one. A vendored library must be:
+  - pinned to one released version;
+  - copied byte-for-byte from the official npm package, with the file named
+    and its sha256 in a header comment;
+  - shipped with its license, plus the notices of every package bundled
+    inside it;
+  - loaded as plain scripts or ES modules, with no build step.
+  To upgrade one, copy the new release the same way, and update its header
+  and notices in the same PR.
 - Match the existing style (2-space indent, ES modules, descriptive comments
   that explain _why_, not _what_).
 - Keep provider code protocol-agnostic — new hosted services that speak
@@ -34,7 +44,6 @@ Please:
 
 - New provider presets (verify the base URL and default model).
 - Improving the page-reading heuristics in `content-script.js`.
-- Better Markdown rendering in the side panel.
 - Accessibility and keyboard-navigation improvements in the UI.
 
 ## Architecture at a glance
