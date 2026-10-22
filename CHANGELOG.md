@@ -5,6 +5,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-10-22
+
 ### Added
 
 - **Real Markdown in the chat.** Replies now render headings, tables, nested
