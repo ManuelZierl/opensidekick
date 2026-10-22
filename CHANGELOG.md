@@ -10,9 +10,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **Real Markdown in the chat.** Replies now render headings, tables, nested
   and ordered lists, blockquotes, task lists, strikethrough and reference
   links with markdown-it (vendored, pinned, verified against npm). Code fences
-  get a language banner, a Copy button and syntax colours from Prism for 13
-  common languages. Links stay limited to http, https and mailto, images never
-  load (one shows as an `[image: alt text]` marker), and raw HTML stays plain
+  get a language banner, a Copy button and syntax colours from Prism for 12
+  common languages. Full web addresses (http or https) and email addresses
+  in a reply become links; bare domains and file names such as `setup.py`
+  do not. Links stay limited to http, https and mailto, images never load
+  (one shows as an `[image: alt text]` marker), and raw HTML stays plain
   text, so the chat still never loads anything from the web. Single line
   breaks still break lines. Thanks @kurotope.
   ([#6](https://github.com/esterhuizen/opensidekick/pull/6))

@@ -55,7 +55,9 @@ genuinely agentic, and usable with any LLM — including fully local models.**
 
 ## Features
 
-- **Side-panel chat** that's aware of the current page.
+- **Side-panel chat** that's aware of the current page. Replies render
+  Markdown: tables, lists, and code blocks with syntax colours and a Copy
+  button.
 - **Agentic browser control** — reads an accessible map of the page and clicks,
   types, selects, scrolls, hovers, double/right-clicks, drags, and presses
   keyboard shortcuts, all by element reference.
