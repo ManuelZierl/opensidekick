@@ -14,7 +14,21 @@ import {
   TRIMMED_NOTE,
 } from "../common/constants.js";
 import { matchPrompts, isSlashQuery } from "../common/prompts.js";
+import { escapeHtml } from "../common/escape.js";
+import { markdownToHtml, createStreamingRenderer, renderTick, CODE_CLASS, setHighlighter } from "../common/markdown.js";
 import { relativeTime } from "../background/sessions.js";
+
+// Prism loads as scripts in sidepanel.html, so it is a global by the time this
+// module runs. Prism's own DOM scan is switched off: the panel renders HTML
+// strings, and highlighting happens inside the fence rule.
+if (typeof Prism !== "undefined") {
+  Prism.manual = true;
+  setHighlighter((code, lang) => {
+    const grammar = Prism.languages[lang];
+    if (!grammar || code.length > 20000) return escapeHtml(code);
+    return Prism.highlight(code, grammar, lang);
+  });
+}
 
 const els = {
   messages: document.getElementById("messages"),
@@ -66,6 +80,30 @@ let newChatPending = false;
 let current = null; // { el, raw } assistant bubble being streamed
 let pendingTools = []; // log rows awaiting their matching tool_end
 let logGroup = null; // the open <details> run of consecutive tool rows
+
+// The copy control's feedback, keyed by state. Label and accessible name come from
+// the state, so a streaming message carries only the state across a re-render and
+// the reset is just the idle state.
+const COPY = {
+  idle: { label: "Copy", aria: "Copy code" },
+  ok: { label: "Copied", aria: "Copied code" },
+  fail: { label: "Failed", aria: "Copy failed" },
+};
+
+// aria-disabled, not the disabled attribute: a disabled button cannot keep keyboard
+// focus, and focus has to survive a re-render.
+function applyCopy(btn, state) {
+  const { label, aria } = COPY[state];
+  btn.textContent = label;
+  btn.setAttribute("aria-label", aria);
+  if (state === "idle") {
+    delete btn.dataset.state;
+    btn.removeAttribute("aria-disabled");
+  } else {
+    btn.dataset.state = state;
+    btn.setAttribute("aria-disabled", "true");
+  }
+}
 
 init();
 
@@ -122,6 +160,37 @@ async function init() {
   }
 
   els.messages.addEventListener("scroll", onMessagesScroll, { passive: true });
+  // The copy control is inside the rendered code block, so it is wired by delegation.
+  els.messages.addEventListener("click", (e) => {
+    const btn = e.target.closest(".md-copy");
+    if (!btn) return;
+    if (btn.dataset.state) return; // the feedback is showing; ignore a second click
+    const pre = btn.closest(`.${CODE_CLASS}`)?.querySelector("pre");
+    if (!pre) return;
+    const msg = btn.closest(".msg.assistant");
+    // A mid-stream re-render replaces the button, so the feedback has to live on
+    // the message's record, not on the element.
+    const rec = current && current.el === msg ? current : null;
+    const index = [...msg.querySelectorAll(".md-copy")].indexOf(btn);
+    // aria-disabled, not the disabled attribute: a disabled button cannot keep
+    // keyboard focus, and focus has to survive the re-render.
+    const setLabel = (state) => {
+      applyCopy(btn, state);
+      if (rec) rec.copy = { index, state };
+      setTimeout(() => {
+        // Drop the record first, so the next render does not put the feedback back,
+        // and reset the button that is live now: the one we clicked is detached by a
+        // re-render, and writing to it leaves the live control stuck on "Copied".
+        if (rec) rec.copy = null;
+        const live = rec ? [...rec.el.querySelectorAll(".md-copy")][index] : btn;
+        if (live) applyCopy(live, "idle");
+      }, 1000);
+    };
+    navigator.clipboard
+      .writeText(pre.textContent)
+      .then(() => setLabel("ok"))
+      .catch(() => setLabel("fail"));
+  });
   els.jumpLatest.addEventListener("click", () => {
     pinned = true;
     scroll();
@@ -184,7 +253,7 @@ function renderHistory(history) {
     else {
       const el = document.createElement("div");
       el.className = "msg assistant";
-      el.innerHTML = renderMarkdown(m.text);
+      el.innerHTML = markdownToHtml(m.text);
       els.messages.appendChild(el);
     }
   }
@@ -576,7 +645,37 @@ function startAssistant() {
   el.className = "msg assistant";
   el.innerHTML = '<span class="thinking"><span class="dot-pulse"></span>Thinking…</span>';
   els.messages.appendChild(el);
-  current = { el, raw: "", started: false };
+  current = { el, started: false, md: createStreamingRenderer(), timer: 0, tick: 16, lastHtml: "", copy: null };
+  scroll();
+}
+
+// The copy feedback and the keyboard focus live on the message's record, not on
+// the button: every render replaces all the controls in the message, so both have
+// to be put back. Without this the button resets to "Copy" and focus falls to the
+// body the moment the reply re-renders.
+function focusedCopyIndex(c) {
+  return document.activeElement?.classList.contains("md-copy")
+    ? [...c.el.querySelectorAll(".md-copy")].indexOf(document.activeElement)
+    : -1;
+}
+
+function restoreCopy(c, focusIndex) {
+  const btns = [...c.el.querySelectorAll(".md-copy")];
+  if (c.copy) {
+    const b = btns[c.copy.index];
+    if (b) applyCopy(b, c.copy.state);
+  }
+  if (focusIndex >= 0) btns[focusIndex]?.focus();
+}
+
+function renderStream(c) {
+  const focusIndex = focusedCopyIndex(c);
+  const html = c.md.render();
+  if (html !== c.lastHtml) {
+    c.el.innerHTML = html;
+    c.lastHtml = html;
+  }
+  restoreCopy(c, focusIndex);
   scroll();
 }
 
@@ -586,19 +685,34 @@ function appendAssistant(text) {
     current.el.innerHTML = "";
     current.started = true;
   }
-  current.raw += text;
-  current.el.innerHTML = renderMarkdown(current.raw);
+  current.md.append(text);
+  // One render per tick, on a timer: requestAnimationFrame does not run in a
+  // background tab, and the panel renders there too. The tick is four times the
+  // last render's cost (renderTick), so a long reply is not re-rendered faster
+  // than the thread can keep up with; a normal reply keeps the 16 ms tick.
+  if (!current.timer) {
+    const c = current;
+    current.timer = setTimeout(() => {
+      c.timer = 0;
+      const t0 = performance.now();
+      renderStream(c);
+      c.tick = renderTick(performance.now() - t0);
+    }, current.tick);
+  }
   scroll();
 }
 
 function endAssistant(content) {
   if (!current) return;
-  if (!current.started) {
-    if (content && content.trim()) {
-      current.el.innerHTML = renderMarkdown(content);
-    } else {
-      current.el.remove(); // pure tool-call turn with no visible text
-    }
+  const c = current;
+  if (c.timer) clearTimeout(c.timer);
+  const focusIndex = focusedCopyIndex(c);
+  const html = c.md.finalize(content);
+  if (html.trim()) {
+    c.el.innerHTML = html;
+    restoreCopy(c, focusIndex); // the final render replaces the controls too
+  } else {
+    c.el.remove(); // pure tool-call turn with no visible text
   }
   current = null;
   scroll();
@@ -705,7 +819,7 @@ function addFinish(summary) {
   sealLog();
   const el = document.createElement("div");
   el.className = "msg assistant";
-  el.innerHTML = renderMarkdown(summary);
+  el.innerHTML = markdownToHtml(summary);
   els.messages.appendChild(el);
   scroll();
 }
@@ -1542,38 +1656,4 @@ function ic(name) {
 
 function send(msg) {
   return chrome.runtime.sendMessage(msg).catch(() => null);
-}
-
-function escapeHtml(s) {
-  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
-
-// Minimal, safe Markdown: escape first, then apply a small subset. Because we
-// escape before applying, model output can never inject raw HTML.
-function renderMarkdown(src) {
-  let t = escapeHtml(src);
-  // fenced code blocks
-  t = t.replace(/```([\s\S]*?)```/g, (_m, code) => `<pre><code>${code.replace(/^\n/, "")}</code></pre>`);
-  // inline code
-  t = t.replace(/`([^`\n]+)`/g, "<code>$1</code>");
-  // bold / italic
-  t = t.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
-  t = t.replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
-  // links [text](url)
-  t = t.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
-  // bullet lists
-  t = t.replace(/(?:^|\n)((?:\s*[-*] .+(?:\n|$))+)/g, (m, block) => {
-    const items = block
-      .trim()
-      .split("\n")
-      .map((l) => "<li>" + l.replace(/^\s*[-*]\s+/, "") + "</li>")
-      .join("");
-    return "\n<ul>" + items + "</ul>";
-  });
-  // paragraphs / line breaks (leave block elements alone)
-  t = t
-    .split(/\n{2,}/)
-    .map((chunk) => (/^\s*<(ul|pre|h\d)/.test(chunk) ? chunk : "<p>" + chunk.replace(/\n/g, "<br>") + "</p>"))
-    .join("");
-  return t;
 }

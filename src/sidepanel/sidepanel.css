@@ -594,6 +594,8 @@ body {
   color: var(--os-ink);
   font-size: var(--os-fs-14);
   line-height: var(--os-lh-prose);
+  /* The renderer owns whitespace. */
+  white-space: normal;
 }
 .msg.assistant :first-child {
   margin-top: 0;
@@ -604,6 +606,88 @@ body {
 .msg.assistant p {
   margin: 0 0 8px;
 }
+.msg.assistant h1,
+.msg.assistant h2,
+.msg.assistant h3,
+.msg.assistant h4,
+.msg.assistant h5,
+.msg.assistant h6 {
+  font-weight: var(--os-w-semibold);
+  margin: 12px 0 6px;
+}
+.msg.assistant h1 {
+  font-size: var(--os-fs-20);
+  line-height: var(--os-lh-20);
+}
+.msg.assistant h2 {
+  font-size: var(--os-fs-16);
+  line-height: var(--os-lh-16);
+}
+.msg.assistant h3,
+.msg.assistant h4 {
+  font-size: var(--os-fs-14);
+  line-height: var(--os-lh-14);
+}
+.msg.assistant h5,
+.msg.assistant h6 {
+  font-size: var(--os-fs-13);
+  line-height: var(--os-lh-13);
+  color: var(--os-ink-soft);
+}
+.msg.assistant :is(h1, h2, h3, h4, h5, h6) code {
+  font-size: inherit;
+}
+.msg.assistant ul,
+.msg.assistant ol {
+  margin: 0 0 8px;
+  padding-left: 20px;
+}
+.msg.assistant li + li {
+  margin-top: 4px;
+}
+.msg.assistant li > ul,
+.msg.assistant li > ol {
+  margin: 4px 0 0;
+}
+.msg.assistant li::marker {
+  color: var(--os-muted);
+}
+.msg.assistant li input[type="checkbox"] {
+  accent-color: var(--os-muted);
+  margin: 0 6px 0 0;
+  vertical-align: -1px;
+}
+.msg.assistant blockquote {
+  border-left: 2px solid var(--os-line-2);
+  color: var(--os-ink-soft);
+  margin: 0 0 8px;
+  padding-left: 12px;
+}
+.msg.assistant hr {
+  border: 0;
+  height: 1px;
+  background: var(--os-line-2);
+  margin: 12px 0;
+}
+/* markdown-it emits <s>; <del> is the semantic equivalent. */
+.msg.assistant s,
+.msg.assistant del {
+  color: var(--os-muted);
+}
+.msg.assistant strong {
+  font-weight: var(--os-w-semibold);
+}
+/* An image the panel will not fetch: the marker is quieter than the prose around it. */
+.msg.assistant .md-image {
+  color: var(--os-ink-soft);
+}
+.msg.assistant a {
+  color: var(--os-accent-ink);
+  /* Colour alone does not tell a link from text, so links are underlined like every
+     other link in the UI. Focus is the panel's standard :focus-visible outline. */
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
 .msg.assistant code {
   font-family: var(--os-mono);
   font-size: var(--os-fs-12);
@@ -611,28 +695,157 @@ body {
   border-radius: var(--os-r-sm);
   padding: 1px 4px;
 }
-.msg.assistant pre {
-  background: var(--os-surface);
+
+/* Code block: a banner with the fence language and the copy control, the code as a scrollport. */
+.msg.assistant .md-code {
   border: 1px solid var(--os-line);
   border-radius: var(--os-r);
+  background: var(--os-surface);
+  margin: 0 0 8px;
+  overflow: hidden;
+}
+.msg.assistant .md-code-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 8px 4px 12px;
+  border-bottom: 1px solid var(--os-line);
+  font-family: var(--os-mono);
+  font-size: var(--os-fs-12);
+  line-height: var(--os-lh-12);
+  color: var(--os-muted);
+}
+.msg.assistant .md-code-banner:only-child {
+  border-bottom: 0;
+}
+.msg.assistant .md-copy {
+  font: inherit;
+  font-size: var(--os-fs-12);
+  min-height: 24px;
+  padding: 2px 8px;
+  border: 1px solid var(--os-line-2);
+  border-radius: var(--os-r-sm);
+  background: var(--os-surface);
+  color: var(--os-ink-soft);
+  cursor: pointer;
+}
+.msg.assistant .md-copy:hover {
+  background: var(--os-hover);
+}
+/* aria-disabled, not the disabled attribute: a disabled button cannot keep
+   keyboard focus, and focus has to survive the re-render. */
+.msg.assistant .md-copy[aria-disabled="true"] {
+  cursor: default;
+  border-color: var(--os-line);
+}
+/* Copied is good news and Failed is not, so they get their own colours: the
+   disabled state used to be drawn in the success green for both. */
+.msg.assistant .md-copy[data-state="ok"] {
+  color: var(--os-good-ink);
+}
+.msg.assistant .md-copy[data-state="fail"] {
+  color: var(--os-bad-ink);
+}
+.msg.assistant .md-code pre {
+  margin: 0;
   padding: 8px 12px;
-  overflow-x: auto;
+  background: none;
+  border: 0;
   font-family: var(--os-mono);
   font-size: var(--os-fs-12);
   line-height: 18px;
+  overflow-x: auto;
+  white-space: pre;
 }
-.msg.assistant pre code {
+/* The code frame clips an outward ring (overflow: hidden), so the standard
+   2px accent outline sits inside the scrollport instead. */
+.msg.assistant .md-code pre:focus-visible {
+  outline-offset: -2px;
+}
+.msg.assistant .md-code pre code {
   background: none;
   padding: 0;
   border-radius: 0;
 }
-.msg.assistant ul,
-.msg.assistant ol {
-  margin: 0 0 8px;
-  padding-left: 20px;
+/* Prism's token classes, mapped to the theme's code colours. */
+.msg.assistant .md-code .token.comment,
+.msg.assistant .md-code .token.prolog,
+.msg.assistant .md-code .token.cdata,
+.msg.assistant .md-code .token.doctype {
+  color: var(--os-tok-comment);
+  font-style: italic;
 }
-.msg.assistant strong {
+.msg.assistant .md-code .token.keyword,
+.msg.assistant .md-code .token.class-name,
+.msg.assistant .md-code .token.decorator {
+  color: var(--os-tok-key);
+}
+.msg.assistant .md-code .token.string,
+.msg.assistant .md-code .token.char,
+.msg.assistant .md-code .token.attr-value,
+.msg.assistant .md-code .token.regex {
+  color: var(--os-tok-string);
+}
+.msg.assistant .md-code .token.number,
+.msg.assistant .md-code .token.boolean,
+.msg.assistant .md-code .token.constant,
+.msg.assistant .md-code .token.symbol {
+  color: var(--os-tok-number);
+}
+.msg.assistant .md-code .token.function,
+.msg.assistant .md-code .token.method {
+  color: var(--os-tok-func);
+}
+.msg.assistant .md-code .token.operator,
+.msg.assistant .md-code .token.punctuation,
+.msg.assistant .md-code .token.variable,
+.msg.assistant .md-code .token.property,
+.msg.assistant .md-code .token.delimiter,
+.msg.assistant .md-code .token.separator {
+  color: var(--os-tok-punct);
+}
+.msg.assistant .md-code .token.tag,
+.msg.assistant .md-code .token.selector,
+.msg.assistant .md-code .token.attr-name,
+.msg.assistant .md-code .token.builtin,
+.msg.assistant .md-code .token.url,
+.msg.assistant .md-code .token.important,
+.msg.assistant .md-code .token.directive {
+  color: var(--os-tok-tag);
+}
+
+/* Tables scroll inside their own box so a wide table cannot widen the panel. */
+.msg.assistant .md-table {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  margin: 0 0 8px;
+  border: 1px solid var(--os-line);
+  border-radius: var(--os-r);
+  background: var(--os-surface);
+}
+.msg.assistant table {
+  border-collapse: collapse;
+  width: max-content;
+}
+.msg.assistant th,
+.msg.assistant td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--os-line);
+  font-size: var(--os-fs-13);
+  line-height: var(--os-lh-13);
+  min-width: 70px;
+  max-width: 200px;
+}
+.msg.assistant th {
   font-weight: var(--os-w-semibold);
+  border-bottom-color: var(--os-line-2);
+}
+.msg.assistant tr:last-child td {
+  border-bottom: 0;
+}
+.msg.assistant table code {
+  font-size: var(--os-fs-12);
 }
 
 /* Tool log. A run is a log, not a stack of cards: one rule, one dot per
