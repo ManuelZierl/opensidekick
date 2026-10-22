@@ -87,6 +87,22 @@ eq(markdownToHtml("Front: https://example.org/files/my_report_v2.png"),
   '<p>Front: <a href="https://example.org/files/my_report_v2.png" target="_blank" rel="noopener noreferrer">https://example.org/files/my_report_v2.png</a></p>',
   "a bare URL keeps its underscores — a filename is not cut at the first one");
 ok(markdownToHtml("[x][ref]\n\n[ref]: https://a.b/c").includes("<a"), "a reference link resolves");
+for (const src of ["[x]()", "[x]( )", "[x](\n)", "[x](<>)"]) {
+  ok(!markdownToHtml(src).includes("<a"), `an empty link destination renders no anchor (${JSON.stringify(src)})`);
+}
+// The invariant behind the allowlist: every anchor that renders has an allowlisted
+// href, whichever markdown path produced it.
+for (const src of [
+  "[x]()", "[a](https://ok.example/)", "<https://ok.example/>", "see https://ok.example/x", "mail a@b.co",
+  "[r]\n\n[r]: javascript:alert(1)", "<javascript:alert(1)>", "[e](&#106;avascript:alert(1))",
+  "[c](chrome-extension://x/y)", "[p](//host/x)", "[d](data:text/html,x)", "[v](vbscript:x)", "[f](file:///etc/passwd)",
+  "| a |\n| - |\n| [x]() |", "# [x]( )", "- [x](\n)", "[<https://a.example>]()",
+]) {
+  const html = markdownToHtml(src);
+  const hrefs = [...html.matchAll(/<a\b[^>]*?\bhref="([^"]*)"/g)].map((m) => m[1].replace(/&amp;/g, "&"));
+  ok(count(html, /<a\b/g) === hrefs.length && count(html, /<a\b/g) === count(html, /<\/a>/g) && hrefs.every((h) => safeHref(h) === h),
+    `every anchor has an allowlisted href (${JSON.stringify(src)} gave ${JSON.stringify(hrefs)})`);
+}
 
 // ---- images: alt text only, no network destination ----
 ok(!markdownToHtml("![d](https://evil.example/i.png)").includes("<img"), "an image never becomes an <img>");

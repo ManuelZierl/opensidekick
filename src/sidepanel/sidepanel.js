@@ -176,7 +176,12 @@ async function init() {
     // keyboard focus, and focus has to survive the re-render.
     const setLabel = (state) => {
       applyCopy(btn, state);
-      if (rec) rec.copy = { index, state };
+      if (rec) {
+        rec.copy = { index, state };
+        // A re-render may have replaced the button while the clipboard call ran.
+        const live = [...rec.el.querySelectorAll(".md-copy")][index];
+        if (live && live !== btn) applyCopy(live, state);
+      }
       setTimeout(() => {
         // Drop the record first, so the next render does not put the feedback back,
         // and reset the button that is live now: the one we clicked is detached by a
@@ -665,7 +670,9 @@ function restoreCopy(c, focusIndex) {
     const b = btns[c.copy.index];
     if (b) applyCopy(b, c.copy.state);
   }
-  if (focusIndex >= 0) btns[focusIndex]?.focus();
+  // preventScroll: a reader who scrolled away keeps their place. Focus moves to the
+  // new control without pulling the transcript back to it.
+  if (focusIndex >= 0) btns[focusIndex]?.focus({ preventScroll: true });
 }
 
 function renderStream(c) {
@@ -674,8 +681,8 @@ function renderStream(c) {
   if (html !== c.lastHtml) {
     c.el.innerHTML = html;
     c.lastHtml = html;
+    restoreCopy(c, focusIndex); // only a swap replaces the controls
   }
-  restoreCopy(c, focusIndex);
   scroll();
 }
 

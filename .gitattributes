@@ -1,0 +1,2 @@
+# Vendored files must stay byte-identical to their npm release on every platform.
+src/common/vendor/** -text

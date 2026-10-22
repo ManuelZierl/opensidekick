@@ -2312,6 +2312,9 @@ async function main() {
       await mdPanel.fill("#input", "Stream markdown please");
       await testPage.bringToFront();
       await mdPanel.click("#send-btn");
+      // Poll on a timer. Playwright's default poll is requestAnimationFrame, which a
+      // background tab does not run, and the panel is one here: the agent needs the
+      // content tab active. A late poll lands after the reply has ended.
       await mdPanel
         .waitForFunction(
           (n) => {
@@ -2319,7 +2322,7 @@ async function main() {
             return a.length > n && a[a.length - 1].querySelector("h2") !== null;
           },
           prev,
-          { timeout: 5000 },
+          { polling: 25, timeout: 5000 },
         )
         .catch(() => {});
     };
@@ -2359,18 +2362,34 @@ async function main() {
       if (!btn) return null;
       btn.focus();
       btn.click();
+      // Scroll away in the click's own task, before any re-render can land. The
+      // synthetic scroll event unpins the transcript at once: a native one waits for
+      // a rendering step, which a background tab does not run. The re-renders that
+      // follow must then hold this position.
+      const m = document.getElementById("messages");
+      m.scrollTop = 0;
+      m.dispatchEvent(new Event("scroll"));
+      window.__copyClicked = btn;
+      const running = document.getElementById("send-btn").hidden;
       await new Promise((r) => setTimeout(r, 120));
-      return { label: btn.textContent, aria: btn.getAttribute("aria-label") };
+      return { label: btn.textContent, aria: btn.getAttribute("aria-label"), scrollable: m.scrollHeight - m.clientHeight > 200, running };
     }).catch(() => null);
-    check(copyMid && copyMid.label === "Copied" && copyMid.aria === "Copied code", `markdown: a copy on a streaming message labels itself (got ${JSON.stringify(copyMid)})`);
+    check(copyMid && copyMid.running && copyMid.label === "Copied" && copyMid.aria === "Copied code", `markdown: a copy on a streaming message labels itself (got ${JSON.stringify(copyMid)})`);
     const copyDone = await panelIdle(mdPanel, copyBase);
     check(copyDone > copyBase, "markdown: the copy stream turn completed");
+    const held = await mdPanel.evaluate(() => ({
+      top: document.getElementById("messages").scrollTop,
+      rerendered: !!window.__copyClicked && !window.__copyClicked.isConnected,
+    })).catch(() => null);
+    const rerendered = !!(held && held.rerendered); // the survival checks below fail unless a re-render really happened
+    check(copyMid && copyMid.scrollable && copyMid.running && rerendered && held.top < 40,
+      `markdown: a focused Copy does not pull a scrolled-away transcript back (got ${JSON.stringify({ scrollable: copyMid && copyMid.scrollable, running: copyMid && copyMid.running, ...held })})`);
     const afterCopy = await mdProbe(mdPanel);
     // The message has several fences, so only the clicked control carries feedback;
     // the rest correctly read Copy. Index 0 is the one clicked.
-    check(afterCopy && afterCopy.copyLabels[0] === "Copied", `markdown: the copy label survives the re-render (got ${JSON.stringify(afterCopy && afterCopy.copyLabels)})`);
-    check(afterCopy && afterCopy.copyAria[0] === "Copied code" && afterCopy.copyDisabled[0], `markdown: the surviving label says so to a screen reader too (got ${JSON.stringify(afterCopy && [afterCopy.copyAria, afterCopy.copyDisabled])})`);
-    check(afterCopy && afterCopy.focusCopy, `markdown: the keyboard focus survives the re-render (got ${JSON.stringify(afterCopy && afterCopy.focusCopy)})`);
+    check(rerendered && afterCopy && afterCopy.copyLabels[0] === "Copied", `markdown: the copy label survives the re-render (got ${JSON.stringify(afterCopy && afterCopy.copyLabels)})`);
+    check(rerendered && afterCopy && afterCopy.copyAria[0] === "Copied code" && afterCopy.copyDisabled[0], `markdown: the surviving label says so to a screen reader too (got ${JSON.stringify(afterCopy && [afterCopy.copyAria, afterCopy.copyDisabled])})`);
+    check(rerendered && afterCopy && afterCopy.focusCopy, `markdown: the keyboard focus survives the re-render (got ${JSON.stringify(afterCopy && afterCopy.focusCopy)})`);
     // The label is feedback, not a state, so it has to go back on its own. It has to
     // go back on the button that is live now: the one clicked was detached by the
     // re-render, and a reset that writes it leaves the live control stuck on Copied.

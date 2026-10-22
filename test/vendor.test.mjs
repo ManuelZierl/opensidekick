@@ -43,5 +43,22 @@ ok(mdHeader.includes("15.0.3") && prismHeaders.every((h) => h.includes("1.30.0")
 const licenses = fs.readFileSync(new URL("markdown-it.LICENSE", VENDOR), "utf8") + fs.readFileSync(new URL("prism/Prism.LICENSE", VENDOR), "utf8");
 ok(licenses.includes("Copyright"), "the license texts sit next to the vendored code");
 
+// markdown-it's browser bundle inlines five packages and two sets of bundler
+// helpers. Their licenses require their notices to travel with the code.
+const notices = fs.readFileSync(new URL("markdown-it.NOTICES", VENDOR), "utf8");
+const bundled = ["entities", "linkify-it", "mdurl", "punycode.js", "uc.micro", "rolldown", "@oxc-project/runtime"];
+ok(bundled.every((p) => notices.includes(`\n${p} `)), `the notices of everything bundled in markdown-it ship next to it (${bundled.join(", ")})`);
+
+// The license and notice texts are pinned, so a truncated or edited one fails.
+const PINNED = {
+  "markdown-it.LICENSE": "792c48c5a849a15fdf9e37e8bcf9e6d1dd13b32b46c642a748a0a46a9919d473",
+  "prism/Prism.LICENSE": "2b947f0901a7ffcf08a89957da9783c0e9c6e72cb6ce8e959f501ab5409e4d2b",
+  "markdown-it.NOTICES": "ad290001b0dec49104d0c45903ce5850ad48f41448107f566ae0a3487f33e6e8",
+};
+for (const [f, want] of Object.entries(PINNED)) {
+  const got = crypto.createHash("sha256").update(fs.readFileSync(new URL(f, VENDOR))).digest("hex");
+  ok(got === want, `${f} matches its pinned sha256 (${want.slice(0, 12)})`);
+}
+
 if (fail) process.exit(1);
 console.log("\nALL VENDOR CHECKS PASSED");

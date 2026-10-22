@@ -45,9 +45,27 @@ const md = new MarkdownIt({ html: false, linkify: true, typographer: false, brea
 
 // markdown-it reads md.validateLink, the prototype method, not a constructor
 // option, so the allowlist goes there. Inline links, reference definitions,
-// autolinks, and linkify all ask it before they emit a destination, which leaves
-// no second place to check.
+// autolinks, and linkify all ask it before they emit a destination. One path does
+// not: an inline link with an empty destination, "[x]()", skips the check and
+// arrives with href "". The core rule below drops any link whose href fails the
+// allowlist and keeps its text, so every anchor that renders has passed safeHref.
 md.validateLink = (url) => safeHref(url) !== null;
+
+md.core.ruler.push("drop_refused_links", (state) => {
+  for (const block of state.tokens) {
+    if (block.type !== "inline" || !block.children) continue;
+    const dropped = []; // one entry per open link: was it dropped?
+    block.children = block.children.filter((t) => {
+      if (t.type === "link_open") {
+        const drop = safeHref(t.attrGet("href")) === null;
+        dropped.push(drop);
+        return !drop;
+      }
+      if (t.type === "link_close") return !dropped.pop();
+      return true;
+    });
+  }
+});
 
 // A code fence gets a banner naming its language, so the language is not the
 // code's first line, and a Copy control. The copy handler lives in the side panel.
@@ -111,18 +129,27 @@ md.renderer.rules.paragraph_open = (tokens, idx, options, env, self) => {
   return self.renderToken(tokens, idx, options);
 };
 
-// validateLink has already allowlisted the destination, so this rule only adds
-// what a chat panel needs: the link opens in its own tab, with no handle from the
-// opened page back into the panel.
+// validateLink and drop_refused_links have already allowlisted the destination,
+// so this rule only normalizes it and adds what a chat panel needs: the link
+// opens in its own tab, with no handle from the opened page back into the panel.
+// A refused href that still gets here (from a rule added after
+// drop_refused_links) loses the attribute, so the anchor stays inert.
 md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
-  tokens[idx].attrSet("href", safeHref(tokens[idx].attrGet("href")));
+  const href = safeHref(tokens[idx].attrGet("href"));
+  if (href === null) tokens[idx].attrs = (tokens[idx].attrs || []).filter(([name]) => name !== "href");
+  else tokens[idx].attrSet("href", href);
   tokens[idx].attrSet("target", "_blank");
   tokens[idx].attrSet("rel", "noopener noreferrer");
   return self.renderToken(tokens, idx, options);
 };
 
+// The trailing newlines go with a loop, not /\n+$/: that regex retries from every
+// newline of a long run inside a code block, which is quadratic in the run.
 export function markdownToHtml(src) {
-  return md.render(String(src ?? "")).replace(/\n+$/, "");
+  const html = md.render(String(src ?? ""));
+  let end = html.length;
+  while (end > 0 && html.charCodeAt(end - 1) === 10) end--;
+  return html.slice(0, end);
 }
 
 // The next render tick, from the last render's cost. The whole growing reply is
