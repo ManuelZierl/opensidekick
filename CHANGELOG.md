@@ -5,6 +5,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Gemini tool calls no longer fail on the second step** ([#7](https://github.com/esterhuizen/opensidekick/issues/7)).
+  Gemini 3 models attach a thought signature to each tool call and reject the
+  next request if it is missing. OpenSidekick now keeps that data and sends it
+  back with the turn it came from, both on Google's OpenAI-compatible endpoint
+  (`extra_content`) and through OpenRouter (`reasoning_details`). It goes only
+  to the server that sent it.
+
 ## [0.4.0] — 2026-10-22
 
 ### Added

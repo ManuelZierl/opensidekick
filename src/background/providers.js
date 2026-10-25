@@ -233,7 +233,16 @@ function openaiHeaders(provider) {
   return h;
 }
 
-function toOpenAIMessages(messages, system) {
+// Opaque provider data that must go back with the turn that produced it, and
+// only to the server that sent it: Gemini's thought signatures ride on tool
+// calls as extra_content (Google's endpoint) or on the assistant message as
+// reasoning_details (OpenRouter). Gemini 3 rejects a later tool turn without
+// them (issue #7).
+function sameOrigin(replay, origin) {
+  return !!(replay && origin && replay.origin === origin);
+}
+
+export function toOpenAIMessages(messages, system, origin) {
   const out = [];
   if (system) out.push({ role: "system", content: system });
   for (const m of messages) {
@@ -258,7 +267,13 @@ function toOpenAIMessages(messages, system) {
           id: tc.id,
           type: "function",
           function: { name: tc.name, arguments: JSON.stringify(tc.args ?? {}) },
+          ...(sameOrigin(tc.replay, origin) && tc.replay.extra_content
+            ? { extra_content: tc.replay.extra_content }
+            : {}),
         }));
+      }
+      if (sameOrigin(m.replay, origin) && Array.isArray(m.replay.reasoning_details)) {
+        msg.reasoning_details = m.replay.reasoning_details;
       }
       out.push(msg);
     } else if (m.role === "tool") {
@@ -277,9 +292,10 @@ function toOpenAITools(tools) {
 }
 
 async function callOpenAI(provider, opts) {
+  const origin = trimSlash(provider.baseUrl);
   const body = {
     model: opts.model,
-    messages: toOpenAIMessages(opts.messages, opts.system),
+    messages: toOpenAIMessages(opts.messages, opts.system, origin),
     stream: true,
     max_tokens: opts.maxTokens,
   };
@@ -306,7 +322,8 @@ async function callOpenAI(provider, opts) {
   // Ollama, "reasoning_content" on vLLM, LM Studio and DeepSeek-style servers.
   // Kept apart from content and never streamed to onDelta.
   let reasoning = "";
-  const toolAccum = new Map(); // index -> { id, name, argChunks: [] }
+  const toolAccum = new Map(); // index -> { id, name, argChunks: [], extra }
+  const reasoningDetails = [];
   let stopReason = null;
 
   for await (const evt of sseStream(res)) {
@@ -326,6 +343,7 @@ async function callOpenAI(provider, opts) {
     }
     if (typeof delta.reasoning === "string") reasoning += delta.reasoning;
     if (typeof delta.reasoning_content === "string") reasoning += delta.reasoning_content;
+    if (Array.isArray(delta.reasoning_details)) mergeReasoningDetails(reasoningDetails, delta.reasoning_details);
     if (delta.tool_calls) {
       for (const tc of delta.tool_calls) {
         const idx = tc.index ?? 0;
@@ -334,23 +352,57 @@ async function callOpenAI(provider, opts) {
         if (tc.id) acc.id = tc.id;
         if (tc.function?.name) acc.name = tc.function.name;
         if (tc.function?.arguments) acc.argChunks.push(tc.function.arguments);
+        if (isPlainObject(tc.extra_content)) acc.extra = mergeDeep(acc.extra || {}, tc.extra_content);
       }
     }
     if (choice.finish_reason) stopReason = choice.finish_reason;
   }
 
-  const toolCalls = [...toolAccum.values()].map((acc, i) => ({
-    id: acc.id || `call_${i}`,
-    name: acc.name,
-    args: safeParseArgs(acc.argChunks.join("")),
-  }));
+  const toolCalls = [...toolAccum.values()].map((acc, i) => {
+    const call = { id: acc.id || `call_${i}`, name: acc.name, args: safeParseArgs(acc.argChunks.join("")) };
+    if (acc.extra) call.replay = { origin, extra_content: acc.extra };
+    return call;
+  });
 
-  return {
+  const result = {
     content,
     toolCalls,
     stopReason: toolCalls.length ? "tool_use" : stopReason || "stop",
     reasoning,
   };
+  if (reasoningDetails.length) result.replay = { origin, reasoning_details: reasoningDetails };
+  return result;
+}
+
+function isPlainObject(v) {
+  return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+
+function mergeDeep(a, b) {
+  const out = { ...a };
+  for (const [k, v] of Object.entries(b)) {
+    if (k === "__proto__" || k === "constructor" || k === "prototype") continue;
+    out[k] = isPlainObject(v) && isPlainObject(out[k]) ? mergeDeep(out[k], v) : v;
+  }
+  return out;
+}
+
+// OpenRouter streams reasoning_details in pieces: entries that share an index
+// are one detail whose text/summary/data strings continue across chunks.
+function mergeReasoningDetails(acc, chunk) {
+  for (const d of chunk) {
+    if (!isPlainObject(d)) continue;
+    const prev = typeof d.index === "number" ? acc.find((x) => x.index === d.index && x.type === d.type) : null;
+    if (!prev) {
+      acc.push({ ...d });
+      continue;
+    }
+    for (const [k, v] of Object.entries(d)) {
+      if (k === "__proto__" || k === "constructor" || k === "prototype") continue;
+      if (["text", "summary", "data"].includes(k) && typeof v === "string" && typeof prev[k] === "string") prev[k] += v;
+      else if (prev[k] === undefined || prev[k] === null) prev[k] = v;
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

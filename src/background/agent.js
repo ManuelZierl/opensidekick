@@ -224,6 +224,7 @@ export async function runAgent(deps) {
       role: "assistant",
       content: result.content || "",
       toolCalls: result.toolCalls,
+      ...(result.replay ? { replay: result.replay } : {}),
     });
     emit({ kind: "assistant_end", content: result.content || "" });
 

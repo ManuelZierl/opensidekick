@@ -113,4 +113,64 @@ for (const type of ["openai", "anthropic"]) {
   assert(err && err.status === 403, `${type} listModels sets err.status (got ${err && err.status})`);
 }
 
+// ---- Gemini thought signatures (issue #7) ----
+{
+  const sig = "CiQBjz1rX-signature==";
+  const gEvents = [
+    `data: {"choices":[{"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"g1","type":"function","function":{"name":"navigate","arguments":"{}"},"extra_content":{"google":{"thought_signature":"${sig}"}}}]}}]}\n\n`,
+    `data: {"choices":[{"finish_reason":"tool_calls"}]}\n\n`,
+    `data: [DONE]\n\n`,
+  ];
+  const gp = { type: "openai", baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai/", apiKey: "k" };
+  globalThis.fetch = async () => fakeResponse(gEvents);
+  const g = await callModel(gp, { model: "gemini-3.5-flash-lite", messages: [{ role: "user", content: "go" }], maxTokens: 100 });
+  const tc = g.toolCalls[0];
+  assert(tc?.replay?.extra_content?.google?.thought_signature === sig, "gemini: thought_signature kept on the tool call");
+  assert(tc?.replay?.origin === "https://generativelanguage.googleapis.com/v1beta/openai", `gemini: replay origin is the trimmed base URL (got ${tc?.replay?.origin})`);
+
+  const convo = [
+    { role: "user", content: "go" },
+    { role: "assistant", content: "", toolCalls: g.toolCalls },
+    { role: "tool", toolCallId: "g1", content: "ok" },
+  ];
+  let sent = null;
+  globalThis.fetch = async (_u, init) => { sent = JSON.parse(init.body); return fakeResponse([`data: {"choices":[{"delta":{"content":"done"},"finish_reason":"stop"}]}\n\n`, "data: [DONE]\n\n"]); };
+  await callModel(gp, { model: "gemini-3.5-flash-lite", messages: convo, maxTokens: 100 });
+  const back = sent.messages.find((m) => m.role === "assistant").tool_calls[0];
+  assert(back.extra_content?.google?.thought_signature === sig, "gemini: thought_signature sent back on the next request");
+
+  await callModel({ type: "openai", baseUrl: "https://api.openai.com/v1", apiKey: "k" }, { model: "gpt", messages: convo, maxTokens: 100 });
+  const other = sent.messages.find((m) => m.role === "assistant").tool_calls[0];
+  assert(!("extra_content" in other), "gemini: signature is not sent to a different server");
+}
+
+// ---- OpenRouter reasoning_details (Gemini via OpenRouter) ----
+{
+  const orEvents = [
+    `data: {"choices":[{"delta":{"reasoning_details":[{"type":"reasoning.text","text":"Think ","index":0}]}}]}\n\n`,
+    `data: {"choices":[{"delta":{"reasoning_details":[{"type":"reasoning.text","text":"more","index":0}]}}]}\n\n`,
+    `data: {"choices":[{"delta":{"reasoning_details":[{"type":"reasoning.encrypted","data":"ENC","index":1,"id":"tool_x"}],"tool_calls":[{"index":0,"id":"tool_x","function":{"name":"read_page","arguments":"{}"}}]}}]}\n\n`,
+    `data: {"choices":[{"finish_reason":"tool_calls"}]}\n\n`,
+    `data: [DONE]\n\n`,
+  ];
+  const op = { type: "openai", baseUrl: "https://openrouter.ai/api/v1", apiKey: "k" };
+  globalThis.fetch = async () => fakeResponse(orEvents);
+  const o = await callModel(op, { model: "google/gemini-3.5-flash-lite", messages: [{ role: "user", content: "go" }], maxTokens: 100 });
+  const rd = o.replay?.reasoning_details;
+  assert(Array.isArray(rd) && rd.length === 2, `openrouter: two reasoning details (got ${JSON.stringify(rd)})`);
+  assert(rd?.[0]?.text === "Think more", "openrouter: text pieces with one index are joined");
+  assert(rd?.[1]?.data === "ENC", "openrouter: encrypted detail kept");
+  let sent = null;
+  globalThis.fetch = async (_u, init) => { sent = JSON.parse(init.body); return fakeResponse(["data: [DONE]\n\n"]); };
+  const convo = [{ role: "user", content: "go" }, { role: "assistant", content: "", toolCalls: o.toolCalls, replay: o.replay }, { role: "tool", toolCallId: "tool_x", content: "ok" }];
+  await callModel(op, { model: "google/gemini-3.5-flash-lite", messages: convo, maxTokens: 100 });
+  assert(JSON.stringify(sent.messages.find((m) => m.role === "assistant").reasoning_details) === JSON.stringify(rd), "openrouter: reasoning_details sent back unchanged");
+  await callModel({ type: "openai", baseUrl: "http://localhost:11434/v1" }, { model: "x", messages: convo, maxTokens: 100 });
+  assert(!("reasoning_details" in sent.messages.find((m) => m.role === "assistant")), "openrouter: reasoning_details not sent to a different server");
+  // A plain reply carries no replay field at all.
+  globalThis.fetch = async () => fakeResponse([`data: {"choices":[{"delta":{"content":"hi"},"finish_reason":"stop"}]}\n\n`, "data: [DONE]\n\n"]);
+  const plain = await callModel(op, { model: "m", messages: [{ role: "user", content: "x" }], maxTokens: 10 });
+  assert(!("replay" in plain), "plain reply: no replay field");
+}
+
 console.log(process.exitCode ? "\nSOME TESTS FAILED" : "\nALL TESTS PASSED");
