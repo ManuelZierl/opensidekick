@@ -5,6 +5,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.4.1] — 2026-10-25
+
 ### Fixed
 
 - **Gemini tool calls no longer fail on the second step** ([#7](https://github.com/esterhuizen/opensidekick/issues/7)).
