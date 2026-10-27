@@ -17,6 +17,9 @@ export const TASK_RUNS_KEY = "opensidekick.taskRuns.v1";
 // worker pick the chat back up (and it clears automatically when Chrome closes).
 export const SESSION_CONVO_KEY = "opensidekick.conversation.v1";
 
+// Session-scoped browser tab-group workspace used by the agent across turns.
+export const SESSION_TAB_WORKSPACE_KEY = "opensidekick.tabWorkspace.v1";
+
 // chrome.storage.session key for a finished recording that hasn't been saved or
 // discarded yet — so closing the side panel doesn't silently lose the steps.
 export const SESSION_PENDING_WF_KEY = "opensidekick.pendingWorkflow.v1";

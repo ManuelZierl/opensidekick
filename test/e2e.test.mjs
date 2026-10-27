@@ -122,6 +122,29 @@ const LESSON_PAGE = `<!doctype html><html><body><h2>Nested lesson question</h2>
 <script>document.querySelector('#inside').addEventListener('click', function(e) { window.__trusted=e.isTrusted; document.querySelector('#frame-out').textContent=e.isTrusted?'trusted':'dom'; });</script>
 </body></html>`;
 
+// Pointer-sensor fixture: non-interactive drop target (no ref) inside an
+// embedded cross-origin document. Success requires real pressed-pointer moves.
+const DRAG_LESSON_PAGE = `<!doctype html><html><body>
+<div id="source" role="button" tabindex="0" style="position:absolute;left:20px;top:20px;width:100px;height:45px;background:#bbd">Offline research</div>
+<div id="dropzone" style="position:absolute;left:180px;top:100px;width:90px;height:50px;background:#bdb">Here to drop</div>
+<div id="drag-result"></div>
+<script>
+let pressed = false, moved = 0, trusted = true;
+window.addEventListener('pointerdown', function(e) {
+  if (e.target.id === 'source') { pressed = true; moved = 0; trusted = e.isTrusted; }
+});
+window.addEventListener('pointermove', function(e) {
+  if (pressed && (e.buttons & 1)) { moved++; trusted = trusted && e.isTrusted; }
+});
+window.addEventListener('pointerup', function(e) {
+  if (!pressed) return;
+  const zone = document.getElementById('dropzone').getBoundingClientRect();
+  const inside = e.clientX >= zone.left && e.clientX <= zone.right && e.clientY >= zone.top && e.clientY <= zone.bottom;
+  document.getElementById('drag-result').textContent = inside && moved >= 5 && trusted && e.isTrusted ? 'drag-accepted' : 'drag-rejected:' + moved;
+  pressed = false;
+});
+</script></body></html>`;
+
 let BASE1 = ""; // first server base URL, set in main()
 let BASE2 = ""; // second server (different origin), set in main()
 
@@ -145,6 +168,12 @@ function decide(messages) {
   let elements = [];
   for (const p of parsed) if (Array.isArray(p.elements)) elements = p.elements;
 
+  if (/drag items inside iframe/.test(firstUser)) {
+    if (n === 0) return { kind: "tool", name: "drag_at", args: {
+      start_x: 110, start_y: 132, end_x: 265, end_y: 215, duration_ms: 650,
+    } };
+    return { kind: "text", text: "drag_complete" };
+  }
   if (/click inside the iframe/.test(firstUser)) {
     if (n === 0) return { kind: "tool", name: "read_page", args: {} };
     if (n === 1) return { kind: "tool", name: "click_element", args: { ref: elements.find((e) => e.frame_id && /start inside frame/i.test(e.name || ""))?.ref } };
@@ -158,6 +187,19 @@ function decide(messages) {
     if (n === 0) return { kind: "tool", name: "read_page", args: {} };
     if (n === 1) return { kind: "tool", name: "click_element", args: { ref: elements.find((e) => /trusted click/i.test(e.name || ""))?.ref } };
     return { kind: "text", text: "trusted_click_done" };
+  }
+
+  // Workspace: background tab creation and logical switching don't steal focus.
+  if (/open a new workspace tab/.test(firstUser)) {
+    if (n === 0) return { kind: "tool", name: "open_tab", args: { url: `${BASE2}/workspace` } };
+    if (n === 1) return { kind: "tool", name: "list_tabs", args: {} };
+    if (n === 2) {
+      const listing = parsed.find((p) => Array.isArray(p.tabs));
+      const firstTab = listing?.tabs?.find((t) => t.url?.includes("/page"));
+      return { kind: "tool", name: "switch_tab", args: { tab_id: firstTab?.tab_id ?? 0 } };
+    }
+    if (n === 3) return { kind: "tool", name: "list_tabs", args: {} };
+    return { kind: "text", text: "workspace_complete" };
   }
 
   // Model identity: the agent appends which model it is to the system prompt.
@@ -369,6 +411,10 @@ function startServer() {
       res.writeHead(200, { "content-type": "text/html" });
       return res.end(TEST_PAGE);
     }
+    if (req.url === "/dragframe") {
+      res.writeHead(200, { "content-type": "text/html" });
+      return res.end(FRAME_PAGE.replace("FRAME_URL", BASE2 + "/drag-lesson"));
+    }
     if (req.url === "/framepage") {
       res.writeHead(200, { "content-type": "text/html" });
       return res.end(FRAME_PAGE.replace("FRAME_URL", BASE2 + "/lesson"));
@@ -485,7 +531,7 @@ function startServer() {
 function startSecondServer() {
   const server = http.createServer((req, res) => {
     res.writeHead(200, { "content-type": "text/html" });
-    res.end(req.url === "/lesson" ? LESSON_PAGE : SECOND_PAGE);
+    res.end(req.url === "/lesson" ? LESSON_PAGE : req.url === "/drag-lesson" ? DRAG_LESSON_PAGE : SECOND_PAGE);
   });
   return new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve(server)));
 }
@@ -1139,8 +1185,40 @@ async function main() {
     const nativeFrame = await drive("Native coordinates inside iframe.");
     const nativeOut = await testPage.frameLocator("iframe").locator("#frame-out").textContent().catch(() => "");
     check(nativeOut === "trusted", `cross-origin: trusted input arrived (got ${nativeOut})`);
-    check(nativeFrame.perms.some((p) => p.sensitive), "cross-origin: coordinate input asked for confirmation");
+    check(nativeFrame.perms.length === 0, "cross-origin: click_at follows Auto without confirmation");
+    // Real drag gesture across the inner (cross-origin) iframe, onto a plain
+    // div with no DOM ref. The page refuses untrusted or isolated clicks.
+    await testPage.goto(`${base}/dragframe`, { waitUntil: "load" });
+    const dragRun = await drive("Drag items inside iframe.");
+    const dragText = await testPage.frameLocator("iframe").locator("#drag-result").textContent().catch(() => "");
+    check(dragText === "drag-accepted", `cross-origin: trusted drag_at accepted on ref-less drop zone (got ${dragText})`);
+    check(toolsOf(dragRun.events).includes("drag_at"), "cross-origin: agent called drag_at");
+    check(dragRun.perms.length === 0, "cross-origin: drag_at follows Auto without confirmation");
     await testPage.goto(`${base}/page`, { waitUntil: "load" });
+
+    // Agent workspace: the active page is grouped and newly opened tabs stay
+    // in the background. Switching logical focus doesn't activate Chrome tabs.
+    const ws = await drive("Open a new workspace tab, list tabs, switch back to this page, then list tabs.");
+    const wsState = await optPage.evaluate(async ([first, second]) => {
+      const tabs = await chrome.tabs.query({});
+      const host = tabs.find((t) => t.url === first + "/page");
+      const created = tabs.find((t) => t.url === second + "/workspace");
+      const group = host?.groupId >= 0 ? await chrome.tabGroups.get(host.groupId).catch(() => null) : null;
+      return { host: host && { id: host.id, active: host.active, groupId: host.groupId },
+        created: created && { id: created.id, active: created.active, groupId: created.groupId },
+        group: group && { title: group.title, color: group.color } };
+    }, [base, BASE2]);
+    check(!!wsState.group && wsState.group.title.startsWith("OpenSidekick"),
+      `workspace: named Chrome tab group created (got ${JSON.stringify(wsState.group)})`);
+    check(wsState.created?.groupId === wsState.host?.groupId && wsState.created?.active === false,
+      `workspace: new tab joined group without activation (got ${JSON.stringify(wsState)})`);
+    check(wsState.host?.active === true, "workspace: original tab remains foreground");
+    check(toolsOf(ws.events).includes("list_tabs") && toolsOf(ws.events).includes("switch_tab"),
+      "workspace: list_tabs and logical switch_tab both executed");
+    const wsResponses = ws.events.filter((e) => e.kind === "tool_end" && !e.ok);
+    check(wsResponses.length === 0, `workspace: no tool failures (got ${JSON.stringify(wsResponses)})`);
+    const createdPage = context.pages().find((p) => p.url() === BASE2 + "/workspace");
+    if (createdPage) await createdPage.close();
 
     // --- run_javascript: injected code mutates the DOM and returns a value ---
     // (Also verifies (C) the on-page activity overlay appears and clears.)

@@ -94,6 +94,46 @@ export async function dispatchMouseAction(tabId, action, point, destination = nu
   return { ok: true, trusted_input: true };
 }
 
+// Real held-button drag across the viewport. This works through iframe hit
+// testing, even when the drop target isn't a DOM-interactive element.
+export async function dispatchDragAt(tabId, start, end, durationMs = 650) {
+  const valid = (p) => p && Number.isFinite(p.x) && Number.isFinite(p.y);
+  if (!valid(start) || !valid(end)) throw new Error("Invalid drag coordinates.");
+  const duration = Math.min(2500, Math.max(250, Number(durationMs) || 650));
+  const steps = Math.max(16, Math.min(60, Math.ceil(duration / 24)));
+  const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  await ensureAttached(tabId);
+  const send = (type, x, y, button, buttons) =>
+    sendCommand(tabId, "Input.dispatchMouseEvent", { type, x, y, button, buttons });
+  let held = false;
+  let position = { x: start.x, y: start.y };
+  try {
+    await send("mouseMoved", start.x, start.y, "none", 0);
+    await send("mousePressed", start.x, start.y, "left", 1);
+    held = true;
+    await delay(75);
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      position = { x: start.x + (end.x - start.x) * t, y: start.y + (end.y - start.y) * t };
+      await send("mouseMoved", position.x, position.y, "left", 1);
+      await delay(duration / steps);
+    }
+    await delay(80); // give the widget a frame to recognize the drop hover
+    await send("mouseReleased", end.x, end.y, "left", 0);
+    held = false;
+    return { ok: true, trusted_input: true, steps };
+  } finally {
+    if (held) await send("mouseReleased", position.x, position.y, "left", 0).catch(() => {});
+  }
+}
+
+// Capture the requested tab, including when another tab is active. Unlike
+// captureVisibleTab this does not accidentally screenshot the user's foreground tab.
+export async function captureTabScreenshot(tabId) {
+  await ensureAttached(tabId);
+  return await sendCommand(tabId, "Page.captureScreenshot", { format: "png", captureBeyondViewport: false, fromSurface: true });
+}
+
 // Called at the end of every task so the debugger banner goes away.
 export async function detachAll() {
   for (const tabId of [...attached.keys()]) {

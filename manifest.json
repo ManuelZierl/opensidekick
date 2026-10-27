@@ -48,6 +48,7 @@
     "storage",
     "scripting",
     "tabs",
+    "tabGroups",
     "activeTab",
     "contextMenus",
     "notifications",

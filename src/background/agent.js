@@ -16,6 +16,7 @@ How to work:
 - To understand a page, call read_page. It returns interactive elements each with a numeric "ref". Act on elements by their ref.
 - Prefer read_page before acting. It also lists controls inside accessible cross-origin iframes. After changing the page, read again: refs are only valid for the latest read_page.
 - When a visual control has no ref, use click_at from a recent screenshot, only if native input is enabled and the target is clear.
+- For drag-and-drop with drop zones lacking refs, use drag_at with source and target centers from a fresh screenshot. It sends a continuous held-pointer gesture; verify the drop succeeded by reading or taking another screenshot.
 - Use get_page_text to read or summarize article content.
 - If the page is visual (a canvas app, images, a custom widget) or the text map isn't enough to locate something, call take_screenshot to see it — when that tool is available.
 - Take the smallest number of steps needed. Do not repeat an action that already succeeded.
@@ -63,7 +64,7 @@ function identityNotes(config, provider) {
 }
 
 export async function runAgent(deps) {
-  const { conversation, config, provider, initialTabId, signal, emit, requestPermission, requestPlanApproval, saveSitePermission } = deps;
+  const { conversation, config, provider, initialTabId, tabGroupId = null, onFocusedTabChanged, signal, emit, requestPermission, requestPlanApproval, saveSitePermission } = deps;
   const identity = identityNotes(config, provider);
 
   const maxSteps = Math.max(1, config.settings.maxSteps || 25);
@@ -136,8 +137,10 @@ export async function runAgent(deps) {
   const declinedServers = new Set(); // MCP servers the user refused, for this run
   const ctx = {
     getTabId: async () => focusedTabId,
+    getTabGroupId: () => tabGroupId,
     setTabId: (id) => {
       focusedTabId = id;
+      if (onFocusedTabChanged) Promise.resolve(onFocusedTabChanged(id)).catch(() => {});
     },
     enableCdpInput: s.enableNativeInput === true,
     // Allowlist mode may only read the top document, not unapproved origins.
@@ -383,12 +386,12 @@ export async function runAgent(deps) {
           if (isSensitiveActionText(lastElements.get(call.args?.ref))) forceSensitive = true;
         }
 
-        // Ref-free coordinates cannot prove the target label or inner origin;
-        // require confirmation every time (including auto mode).
-        if (call.name === "click_at") forceSensitive = true;
+        // Coordinate clicks follow the same Ask/Plan/Auto policy as other
+        // mutations. Native input is separately opt-in, and sensitive-site
+        // / explicitly blocked-origin rules still apply.
         let verdict = evaluate(call.name, url, config, sessionGrants);
         if (forceSensitive && verdict.decision !== "block") {
-          verdict = { decision: "prompt", sensitive: true, why: call.name === "click_at" ? "A coordinate click has no verified target label or origin. Check the screenshot before allowing." : "" };
+          verdict = { decision: "prompt", sensitive: true };
         } else if (verdict.decision === "prompt") {
           // In plan mode, act freely on sites the user approved in the plan.
           const currentHost = hostFromDomain(url);

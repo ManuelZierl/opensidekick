@@ -3,7 +3,7 @@
 // provider layer converts them to the right wire format.
 
 import { MSG } from "../common/constants.js";
-import { dispatchMouseAction, readConsole, readNetwork } from "./cdp.js";
+import { captureTabScreenshot, dispatchMouseAction, dispatchDragAt, readConsole, readNetwork } from "./cdp.js";
 
 export const TOOL_DEFS = [
   {
@@ -39,6 +39,18 @@ export const TOOL_DEFS = [
       x: { type: "number", description: "Horizontal CSS viewport coordinate." },
       y: { type: "number", description: "Vertical CSS viewport coordinate." },
     }, required: ["x", "y"], additionalProperties: false },
+    nativeOnly: true,
+  },
+  {
+    name: "drag_at",
+    description: "Drag using a real held-left-mouse gesture from source to destination CSS viewport coordinates. Works inside cross-origin iframes and with drop zones lacking an element ref. Locate both centers in a fresh screenshot. Requires opt-in native input.",
+    parameters: { type: "object", properties: {
+      start_x: { type: "number", description: "Source center X in CSS viewport pixels." },
+      start_y: { type: "number", description: "Source center Y in CSS viewport pixels." },
+      end_x: { type: "number", description: "Drop-zone center X in CSS viewport pixels." },
+      end_y: { type: "number", description: "Drop-zone center Y in CSS viewport pixels." },
+      duration_ms: { type: "integer", minimum: 250, maximum: 2500, description: "Duration (250–2500 ms); default 650. Increase for slower drag gestures." },
+    }, required: ["start_x", "start_y", "end_x", "end_y"], additionalProperties: false },
     nativeOnly: true,
   },
   {
@@ -282,6 +294,8 @@ export async function executeTool(name, args, ctx) {
       return await mouseAction(tabId, ctx, "click", args.ref);
     case "click_at":
       return await clickAt(tabId, ctx, args.x, args.y);
+    case "drag_at":
+      return await dragAt(tabId, ctx, args);
     case "type_text":
       return await frameAction(tabId, { type: MSG.CS_ACT, action: "type", ref: args.ref, text: args.text, submit: !!args.submit });
     case "select_option":
@@ -315,7 +329,7 @@ export async function executeTool(name, args, ctx) {
     case "wait":
       return await waitSeconds(args.seconds);
     case "list_tabs":
-      return await listTabs();
+      return await listTabs(ctx);
     case "open_tab":
       return await openTab(ctx, args.url);
     case "switch_tab":
@@ -489,6 +503,26 @@ async function mouseAction(tabId, ctx, action, ref, toRef) {
   }
 }
 
+async function dragAt(tabId, ctx, args) {
+  if (!ctx.enableCdpInput) return { ok: false, error: "Native pointer input is disabled in Settings." };
+  const { start_x, start_y, end_x, end_y, duration_ms } = args;
+  const coords = [start_x, start_y, end_x, end_y];
+  if (!coords.every((n) => typeof n === "number" && Number.isFinite(n))) {
+    return { ok: false, error: "Drag coordinates must be finite numbers." };
+  }
+  if (duration_ms !== undefined && (!Number.isInteger(duration_ms) || duration_ms < 250 || duration_ms > 2500)) {
+    return { ok: false, error: "duration_ms must be an integer between 250 and 2500." };
+  }
+  const size = await chrome.scripting.executeScript({ target: { tabId }, func: () => ({ width: innerWidth, height: innerHeight }) });
+  const { width, height } = size[0].result;
+  if ([start_x, end_x].some((x) => x < 0 || x >= width) || [start_y, end_y].some((y) => y < 0 || y >= height)) {
+    return { ok: false, error: "Source or destination outside the viewport." };
+  }
+  const start = { x: start_x, y: start_y }, end = { x: end_x, y: end_y };
+  const result = await dispatchDragAt(tabId, start, end, duration_ms);
+  return { ...result, dragged: { from: start, to: end }, note: "Gesture dispatched. Re-read the widget to verify the drop was accepted." };
+}
+
 async function clickAt(tabId, ctx, x, y) {
   if (!ctx.enableCdpInput) return { ok: false, error: "Native pointer input is disabled in Settings." };
   if (!Number.isFinite(x) || !Number.isFinite(y)) return { ok: false, error: "Invalid coordinates." };
@@ -519,19 +553,42 @@ async function navigate(ctx, target) {
 async function openTab(ctx, url) {
   let full = url.trim();
   if (!/^https?:\/\//i.test(full) && !/^[a-z]+:\/\//i.test(full)) full = "https://" + full;
-  const tab = await chrome.tabs.create({ url: full, active: true });
+
+  let current = null;
+  try {
+    current = await chrome.tabs.get(await ctx.getTabId());
+  } catch {
+    /* fall back to Chrome's default window */
+  }
+
+  const createProps = { url: full, active: false };
+  if (current && Number.isInteger(current.windowId)) createProps.windowId = current.windowId;
+  const tab = await chrome.tabs.create(createProps);
+
+  const groupId = typeof ctx.getTabGroupId === "function" ? ctx.getTabGroupId() : null;
+  if (Number.isInteger(groupId) && groupId >= 0) {
+    try {
+      await chrome.tabs.group({ tabIds: [tab.id], groupId });
+    } catch {
+      // If the group vanished mid-run, keep the tab usable rather than failing.
+    }
+  }
+
   ctx.setTabId(tab.id);
   await waitForLoad(tab.id);
   const updated = await chrome.tabs.get(tab.id);
-  return { ok: true, tab_id: tab.id, url: updated.url, title: updated.title };
+  return { ok: true, tab_id: tab.id, url: updated.url, title: updated.title, active: updated.active };
 }
 
 async function switchTab(ctx, tabId) {
   try {
     const tab = await chrome.tabs.get(tabId);
-    await chrome.tabs.update(tabId, { active: true });
+    const groupId = typeof ctx.getTabGroupId === "function" ? ctx.getTabGroupId() : null;
+    if (Number.isInteger(groupId) && groupId >= 0 && tab.groupId !== groupId) {
+      return { ok: false, error: `Tab ${tabId} is outside the current OpenSidekick workspace.` };
+    }
     ctx.setTabId(tabId);
-    return { ok: true, tab_id: tabId, url: tab.url, title: tab.title };
+    return { ok: true, tab_id: tabId, url: tab.url, title: tab.title, active: tab.active };
   } catch {
     return { ok: false, error: `No tab with id ${tabId}.` };
   }
@@ -590,9 +647,18 @@ async function screenshot(ctx) {
   }
 
   try {
-    // captureVisibleTab grabs the active tab of the window as a PNG data URL.
-    const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "png" });
-    const data = dataUrl.split(",")[1];
+    // captureVisibleTab only captures the ACTIVE tab; use CDP for a background
+    // workspace tab so the agent never sees somebody else's foreground page.
+    const [active] = await chrome.tabs.query({ active: true, windowId: tab.windowId });
+    let data;
+    if (active?.id === tabId) {
+      const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "png" });
+      data = dataUrl.split(",")[1];
+    } else {
+      const shot = await captureTabScreenshot(tabId);
+      if (!shot?.data) return { ok: false, error: "Could not capture the background workspace tab." };
+      data = shot.data;
+    }
     // captureVisibleTab may return device pixels, while CDP Input expects CSS
     // pixels. Report both sizes so a vision model can convert accurately.
     let note = "Screenshot captured.";
@@ -644,11 +710,25 @@ async function fetchDirectImage(url) {
   }
 }
 
-async function listTabs() {
-  const tabs = await chrome.tabs.query({ currentWindow: true });
+async function listTabs(ctx) {
+  const groupId = typeof ctx.getTabGroupId === "function" ? ctx.getTabGroupId() : null;
+  let tabs;
+  if (Number.isInteger(groupId) && groupId >= 0) {
+    tabs = await chrome.tabs.query({ groupId });
+  } else {
+    const current = await chrome.tabs.get(await ctx.getTabId()).catch(() => null);
+    tabs = await chrome.tabs.query(current ? { windowId: current.windowId } : { currentWindow: true });
+  }
+  const focusedId = await ctx.getTabId();
   return {
     ok: true,
-    tabs: tabs.map((t) => ({ tab_id: t.id, title: t.title, url: t.url, active: t.active })),
+    tabs: tabs.map((t) => ({
+      tab_id: t.id,
+      title: t.title,
+      url: t.url,
+      active: t.active,
+      agent_focused: t.id === focusedId,
+    })),
   };
 }
 
