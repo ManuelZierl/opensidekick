@@ -210,6 +210,8 @@ export const DEFAULT_SETTINGS = {
   enableVision: true,
   // Expose a run_javascript escape-hatch tool (runs code in the page).
   enableJsTool: false,
+  // Browser-level pointer input is opt-in (Chrome shows a debugger banner).
+  enableNativeInput: false,
   // Expose console/network reading via Chrome's debugger (shows a banner).
   enableCdp: false,
   // Max output tokens per model call.

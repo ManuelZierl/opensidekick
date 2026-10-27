@@ -64,6 +64,11 @@ genuinely agentic, and usable with any LLM — including fully local models.**
 - **Vision (on by default)** — the agent can capture a screenshot so a
   multimodal model can *see* the page (images, canvas apps, visual layout). Turn
   it off in Settings if you use a text-only model.
+- **Native input (opt-in)** — trusted browser mouse events and screenshot-guided
+  coordinate clicks for embedded players and sites rejecting synthetic events.
+  Chrome shows its debugger banner during use.
+- **Cross-origin iframe controls** — access embedded-document controls when the
+  extension has host access; no cross-origin parent DOM access is attempted.
 - **Optional developer tools** — read the page's console messages and network
   requests to debug ("why is this page erroring?"), and a run-JavaScript escape
   hatch for when the other tools aren't enough. Both opt-in in Settings.
@@ -281,9 +286,12 @@ See [PRIVACY.md](PRIVACY.md) for the full data-handling statement.
 
 ## Limitations (v0.1)
 
-- Actions are DOM-based (synthesized events), which works on most sites but can
-  miss elements inside closed shadow DOM, cross-origin iframes, or `<canvas>`
-  apps.
+- DOM actions work in accessible cross-origin frames. Frame-ref actions still
+  use DOM events; opt-in native `click_at` can send trusted clicks into them.
+  Closed shadow roots, inaccessible frames and canvas content may require
+  screenshot-guided coordinate selection.
+- Coordinate actions use CSS viewport pixels and can hit the wrong element if
+  the page changes. Clicking over an iframe requires explicit confirmation.
 - Restricted pages (`chrome://`, the Chrome Web Store, PDFs) can't be read or
   acted on.
 - Scheduled/long tasks depend on the service worker staying alive; very long
@@ -297,6 +305,8 @@ Shipped since the first cut:
 - [x] Fuller action set — hover, double-click, right-click, drag, keyboard shortcuts
 - [x] Run-JavaScript escape hatch (opt-in)
 - [x] Read console errors + network requests via Chrome's debugger (opt-in)
+- [x] Trusted mouse input and screenshot-based coordinate clicks (opt-in)
+- [x] Read and act within permitted cross-origin iframes
 - [x] On-page activity indicator with a Stop button
 - [x] Prompt-injection flagging + pre-action domain re-check + sensitive-action confirmation
 - [x] Plan-approval mode (agent proposes steps + sites, you approve before it acts)
@@ -309,7 +319,6 @@ Shipped since the first cut:
 Planned, to reach and exceed feature parity with vendor-locked assistants:
 
 - [ ] Upload files into file inputs (via the debugger)
-- [ ] CDP-based trusted input for tougher sites
 - [ ] Firefox (WebExtensions) build
 
 Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).

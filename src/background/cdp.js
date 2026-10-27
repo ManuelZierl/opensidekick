@@ -1,6 +1,6 @@
 // Chrome DevTools Protocol integration via chrome.debugger.
 //
-// Powers the debugging tools (read_console / read_network). Attaching shows
+// Powers developer tools and opt-in native pointer input. Attaching shows
 // Chrome's "started debugging this browser" banner, so this is only used when
 // the user turns on Advanced automation, and we detach at the end of each task.
 //
@@ -58,6 +58,40 @@ export async function readNetwork(tabId, opts = {}) {
     requests: items.slice(-limit),
     note: items.length ? undefined : "No network requests captured yet — reload the page and read again.",
   };
+}
+
+// Browser-level events go through Chromium hit testing, including OOPIFs.
+// Points are CSS pixels in the top-level tab viewport.
+export async function dispatchMouseAction(tabId, action, point, destination = null) {
+  const checked = (p) => {
+    if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) throw new Error("Invalid pointer coordinates.");
+    return { x: p.x, y: p.y };
+  };
+  const p = checked(point);
+  await ensureAttached(tabId);
+  const send = (type, x, y, button = "none", buttons = 0, clickCount = 0) =>
+    sendCommand(tabId, "Input.dispatchMouseEvent", { type, x, y, button, buttons, clickCount });
+  await send("mouseMoved", p.x, p.y);
+  if (action === "hover") return { ok: true, trusted_input: true };
+  if (action === "drag") {
+    const q = checked(destination);
+    await send("mousePressed", p.x, p.y, "left", 1, 1);
+    for (let i = 1; i <= 8; i++) {
+      const t = i / 8;
+      await send("mouseMoved", p.x + (q.x - p.x) * t, p.y + (q.y - p.y) * t, "none", 1);
+    }
+    await send("mouseReleased", q.x, q.y, "left", 0, 1);
+    return { ok: true, trusted_input: true };
+  }
+  if (!["click", "dblclick", "contextmenu"].includes(action)) throw new Error("Unsupported pointer action: " + action);
+  const button = action === "contextmenu" ? "right" : "left";
+  const buttons = button === "right" ? 2 : 1;
+  const count = action === "dblclick" ? 2 : 1;
+  for (let i = 1; i <= count; i++) {
+    await send("mousePressed", p.x, p.y, button, buttons, i);
+    await send("mouseReleased", p.x, p.y, button, 0, i);
+  }
+  return { ok: true, trusted_input: true };
 }
 
 // Called at the end of every task so the debugger banner goes away.
