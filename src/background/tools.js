@@ -383,7 +383,7 @@ async function readAllFrames(tabId, includeFrames = true) {
     const r = await csSend(tabId, { type: MSG.CS_READ_PAGE }, f.frameId);
     if (!r?.ok) continue;
     if (f.frameId === 0) top = r;
-    details.push({ frame_id: f.frameId, url: displayFrameUrl(f.url), title: r.title });
+    details.push({ frame_id: f.frameId, url: displayFrameUrl(f.url), title: r.title, ...(f.frameId ? { summary: r.summary } : {}) });
     for (const el of r.elements || []) {
       const ref = elements.length + 1;
       refs.set(ref, { frameId: f.frameId, localRef: el.ref, url: f.url });
@@ -401,15 +401,16 @@ async function readAllFrames(tabId, includeFrames = true) {
 async function readAllText(tabId, includeFrames = true) {
   const frames = (await frameList(tabId)).filter((f) => includeFrames || f.frameId === 0);
   let top = null;
-  const parts = [];
+  const parts = [], details = [];
   for (const f of frames) {
     const r = await csSend(tabId, { type: MSG.CS_GET_TEXT }, f.frameId);
     if (!r?.ok) continue;
     if (f.frameId === 0) top = r;
+    details.push({ frame_id: f.frameId, url: displayFrameUrl(f.url) });
     if (r.text) parts.push((f.frameId ? "[Embedded: " + displayFrameUrl(f.url) + "]\n" : "") + r.text);
   }
   if (!top) return { ok: false, error: "Cannot read the top-level page." };
-  return { ...top, text: parts.join("\n\n").slice(0, 16000) };
+  return { ...top, text: parts.join("\n\n").slice(0, 16000), frames: details };
 }
 
 export async function ensureContentScript(tabId, frameId = 0) {
@@ -497,16 +498,6 @@ async function clickAt(tabId, ctx, x, y) {
   await dispatchMouseAction(tabId, "click", { x, y });
   return { ok: true, clicked: { x, y }, trusted_input: true,
     note: "Chromium hit-testing chose the receiving element. Verify the page changed as expected." };
-}
-
-// Coordinate actions into embedded documents always require explicit consent.
-// If the frame is inaccessible, conservatively report a frame hit.
-export async function pointHitsFrame(tabId, x, y) {
-  try {
-    const r = await chrome.scripting.executeScript({ target: { tabId }, args: [x, y],
-      func: (px, py) => !!document.elementFromPoint(px, py)?.closest("iframe,frame") });
-    return r[0]?.result === true;
-  } catch { return true; }
 }
 
 async function navigate(ctx, target) {

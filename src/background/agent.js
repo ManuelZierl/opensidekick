@@ -3,7 +3,7 @@
 // stops calling tools, calls `finish`, hits the step cap, or is aborted.
 
 import { callModel } from "./providers.js";
-import { TOOL_DEFS, executeTool, setOverlay, getRefUrl, pointHitsFrame } from "./tools.js";
+import { TOOL_DEFS, executeTool, setOverlay, getRefUrl } from "./tools.js";
 import { evaluate, MUTATING_TOOLS, PAGE_READ_TOOLS, originOf, isSensitive } from "./permissions.js";
 import { detectInjection, isSensitiveActionText, looksLikeSecret, INJECTION_NOTE } from "./safety.js";
 import { parsePlan, planToText, hostFromDomain } from "./plan.js";
@@ -383,12 +383,12 @@ export async function runAgent(deps) {
           if (isSensitiveActionText(lastElements.get(call.args?.ref))) forceSensitive = true;
         }
 
-        // Without a ref, screen coordinates may target a nested origin unknown
-        // to the tab. Always ask the user for explicit approval over an iframe.
-        if (call.name === "click_at" && await pointHitsFrame(focusedTabId, call.args?.x, call.args?.y)) forceSensitive = true;
+        // Ref-free coordinates cannot prove the target label or inner origin;
+        // require confirmation every time (including auto mode).
+        if (call.name === "click_at") forceSensitive = true;
         let verdict = evaluate(call.name, url, config, sessionGrants);
         if (forceSensitive && verdict.decision !== "block") {
-          verdict = { decision: "prompt", sensitive: true, why: call.name === "click_at" ? "The coordinate targets an iframe; verify the screenshot before allowing this click." : "" };
+          verdict = { decision: "prompt", sensitive: true, why: call.name === "click_at" ? "A coordinate click has no verified target label or origin. Check the screenshot before allowing." : "" };
         } else if (verdict.decision === "prompt") {
           // In plan mode, act freely on sites the user approved in the plan.
           const currentHost = hostFromDomain(url);
@@ -509,7 +509,7 @@ export async function runAgent(deps) {
           toolResult.suspected_injection = true;
           toolResult.injection_note = INJECTION_NOTE;
           emit({ kind: "warning", text: "Possible prompt injection in page content — instructions found in the page will be ignored." });
-        } else if (dsrc && featureEnabled(config, "injection") && !isSensitive(toolResult.url || observedOrigin || "")) {
+        } else if (dsrc && featureEnabled(config, "injection") && !isSensitive(toolResult.url || observedOrigin || "") && !(toolResult.frames || []).some((f) => isSensitive(f.url))) {
           // The regex is an unconditional floor; this only ever adds a flag it
           // missed (paraphrases: "a note for any automated helper reading
           // this…"). Skipped entirely when the regex already flagged the page,
